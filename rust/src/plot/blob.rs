@@ -736,6 +736,7 @@ pub fn plot_grid(
                     clamp: y_opts.clamp.clone(),
                     font_size,
                     weight: 1.0,
+                    rotate: true,
                     tick_count: 3,
                     tick_labels: col == 0,
                     major_ticks: Some(TickOptions {

@@ -1075,10 +1075,17 @@ pub fn chart_axis(plot_axis: &AxisOptions) -> (Group, Group) {
     let mut minor_tick_group = Group::new();
     if plot_axis.minor_ticks.is_some() {
         let minor_ticks = create_axis_ticks(&plot_axis, TickStatus::Minor);
-        for tick in minor_ticks {
+        for (i, t) in minor_ticks.iter().enumerate() {
+            let tick = t.clone();
             minor_tick_group = if major_tick_count == 0 {
                 major_gridline_group = major_gridline_group.add(tick.gridline);
                 minor_tick_group.add(tick.path).add(tick.label)
+            // } else if i == minor_ticks.len() - 1 && major_tick_count == 1 {
+            //     major_gridline_group = major_gridline_group.add(tick.gridline);
+            //     minor_tick_group.add(tick.path).add(tick.label)
+            // } else if major_tick_count == 1 {
+            //     major_gridline_group = major_gridline_group.add(tick.gridline);
+            //     minor_tick_group.add(tick.path)
             } else {
                 minor_tick_group.add(tick.path)
             };
