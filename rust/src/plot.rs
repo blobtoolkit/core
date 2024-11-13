@@ -421,6 +421,9 @@ fn set_grid_data(
     let filtered_identifiers = blobdir::apply_filter_string(&identifiers, &wanted_indices);
     let mut grid_data = vec![];
     for (i, x) in window_values["x"].iter().enumerate() {
+        if x.is_empty() {
+            continue;
+        }
         grid_data.push(BlobData {
             x: x.clone(),
             y: window_values["y"][i].clone(),
