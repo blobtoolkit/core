@@ -191,6 +191,24 @@ pub struct Nodes {
     pub children: HashMap<String, Vec<String>>,
 }
 
+fn add_parent_node(
+    nodes: &mut HashMap<String, Node>,
+    children: &mut HashMap<String, Vec<String>>,
+    parent_id: &String,
+    source: &Nodes,
+) -> String {
+    if let Some(_) = nodes.get(parent_id) {
+        return "".to_string();
+    }
+    if let Some(parent_node) = source.nodes.get(parent_id) {
+        let parent_children = source.children.get(parent_id).unwrap();
+        nodes.insert(parent_node.tax_id.clone(), parent_node.clone());
+        children.insert(parent_node.tax_id.clone(), parent_children.clone());
+        return parent_node.parent_tax_id.clone();
+    }
+    "".to_string()
+}
+
 impl Nodes {
     /// Get parent Node.
     pub fn parent(&self, taxon_id: &String) -> Option<&Node> {
@@ -269,6 +287,46 @@ impl Nodes {
             }
         }
         nodes
+    }
+
+    pub fn merge(&mut self, other: &Nodes, source: &Nodes) -> () {
+        let mut nodes = self.nodes.clone();
+        let mut children = self.children.clone();
+        for node in other.nodes.iter() {
+            match nodes.entry(node.0.clone()) {
+                Entry::Vacant(e) => {
+                    e.insert(node.1.clone());
+                    let mut parent_id = node.1.parent_tax_id.clone();
+                    while parent_id > "".to_string() {
+                        parent_id = add_parent_node(&mut nodes, &mut children, &parent_id, source);
+                    }
+                }
+                Entry::Occupied(mut e) => {
+                    let mut names = e.get_mut().names.clone();
+                    if let Some(names) = names.as_mut() {
+                        for name in node.1.names.clone().unwrap() {
+                            names.push(name);
+                        }
+                    } else {
+                        e.get_mut().names = node.1.names.clone();
+                    }
+                }
+            }
+        }
+        for child in other.children.iter() {
+            match children.entry(child.0.clone()) {
+                Entry::Vacant(e) => {
+                    e.insert(child.1.clone());
+                }
+                Entry::Occupied(mut e) => {
+                    for c in child.1.clone() {
+                        e.get_mut().push(c);
+                    }
+                }
+            }
+        }
+        self.nodes = nodes;
+        self.children = children;
     }
 }
 
@@ -835,24 +893,39 @@ fn key_index(headers: &StringRecord, key: &str) -> Result<usize, error::Error> {
     }
 }
 
-fn update_config(key: &str, ghubs_config: &mut GHubsConfig, headers: &StringRecord) {
+fn update_config(
+    key: &str,
+    ghubs_config: &mut GHubsConfig,
+    headers: &StringRecord,
+) -> Result<(), error::Error> {
     for (_, field) in ghubs_config.borrow_mut().get_mut(key).unwrap().iter_mut() {
         if field.header.is_some() {
             // if let Some(header) = &field.header {
             // let field_idx = &mut field.index;
             field.index = match &field.header.as_ref().unwrap().clone() {
-                StringOrVec::Single(item) => Some(UsizeOrVec::Single(
-                    key_index(headers, item.as_str()).unwrap(),
-                )),
+                StringOrVec::Single(item) => {
+                    let index = key_index(headers, item.as_str()).map_or_else(
+                        |_| Err(error::Error::HeaderNotFound(item.to_string())),
+                        |x| Ok(x),
+                    )?;
+                    let res = UsizeOrVec::Single(index);
+                    Some(res)
+                }
                 StringOrVec::Multiple(list) => Some(UsizeOrVec::Multiple(
                     list.iter()
-                        .map(|item| key_index(headers, item.as_str()).unwrap())
-                        .collect::<Vec<usize>>(),
+                        .map(|item| {
+                            key_index(headers, item.as_str()).map_or_else(
+                                |_| Err(error::Error::HeaderNotFound(item.to_string())),
+                                |x| Ok(x),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
                 )),
             };
             // field.index = field_index;
         };
     }
+    Ok(())
 }
 
 fn check_bounds<T: Into<f64> + Copy>(value: &T, constraint: &ConstraintConfig) -> bool {
@@ -952,8 +1025,11 @@ fn apply_function(value: String, field: &GHubsFieldConfig) -> String {
     let mut val = value;
     if let Some(ref function) = field.function {
         let equation = function.replace("{}", val.as_str());
-        let value = eval(equation.as_str(), false, Unit::NoUnit, false).unwrap();
-        val = format!("{}", value);
+        let value = eval(equation.as_str(), false, Unit::NoUnit, false);
+        val = match value {
+            Ok(v) => format!("{}", v),
+            _ => "None".to_string(),
+        };
     }
     match apply_validation(val.clone(), &field) {
         Ok(is_valid) => {
@@ -1030,17 +1106,19 @@ fn validate_values(
             };
             let values = process_value(string_value, field).unwrap().join(";");
             validated.insert(field_name.clone(), values);
+        } else if let Some(default_value) = &field.default {
+            validated.insert(field_name.clone(), default_value.clone());
         }
     }
     validated
 }
 
 // Parse taxa from a GenomeHubs data file
-fn nodes_from_file(
+fn parse_data_file(
     config_file: &PathBuf,
     ghubs_config: &mut GHubsConfig,
     _lookup_table: &HashMap<String, Vec<String>>,
-) -> Result<(), error::Error> {
+) -> Result<Vec<HashMap<String, HashMap<String, String>>>, error::Error> {
     let file_config = ghubs_config.file.as_ref().unwrap();
     let delimiter = match file_config.format {
         GHubsFileFormat::CSV => b',',
@@ -1050,18 +1128,17 @@ fn nodes_from_file(
     path.pop();
     path.push(file_config.name.clone());
 
-    let mut rdr = ReaderBuilder::new()
-        .has_headers(file_config.header)
-        .delimiter(delimiter)
-        .from_path(path)?;
+    let mut rdr = io::csv_reader(file_config.header, delimiter, path)?;
     let headers = rdr.headers()?;
-    let keys = vec!["attributes", "taxonomy"];
+    let keys = vec!["attributes", "identifiers", "taxonomy"];
     for key in keys.iter() {
         if ghubs_config.get(key).is_some() {
-            update_config(key, ghubs_config, headers);
+            update_config(key, ghubs_config, headers)?;
         }
     }
     // dbg!(&ghubs_config);
+
+    let mut rows: Vec<HashMap<String, HashMap<String, String>>> = vec![];
 
     for result in rdr.records() {
         let record = result?;
@@ -1069,34 +1146,26 @@ fn nodes_from_file(
         for key in keys.iter() {
             if ghubs_config.get(key).is_some() {
                 let value = validate_values(key, ghubs_config, &record);
-                processed.insert(key, value);
+                processed.insert(key.to_string(), value);
             }
         }
-        // let status = record.get(4).unwrap();
-        dbg!(processed);
+        rows.push(processed);
     }
-    Ok(())
+    Ok(rows)
 }
 
 pub fn parse_file(
     config_file: PathBuf,
     lookup_table: &HashMap<String, Vec<String>>,
-) -> Result<(), error::Error> {
+) -> Result<Vec<HashMap<String, HashMap<String, String>>>, error::Error> {
     // let mut children = HashMap::new();
 
     let mut ghubs_config = match parse_genomehubs_config(&config_file) {
         Ok(ghubs_config) => ghubs_config,
         Err(err) => return Err(err),
     };
-    let nodes = nodes_from_file(&config_file, &mut ghubs_config, &lookup_table);
-    dbg!(&nodes);
-
-    // let mut rdr = ReaderBuilder::new()
-    //     .has_headers(false)
-    //     .delimiter(b'\t')
-    //     .from_path(gbif_backbone)?;
-
-    Ok(())
+    let rows = parse_data_file(&config_file, &mut ghubs_config, &lookup_table);
+    rows
 }
 
 /// Deserializer for lineage

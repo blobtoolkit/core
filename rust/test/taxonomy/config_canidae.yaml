@@ -1,4 +1,4 @@
-path: test/taxonomy/canidae/ncbi
+path: /Users/rchallis/projects/genomehubs/boat-resources/taxdump/ncbi
 out: test/taxonomy/canidae/combined
 taxonomy_format: ncbi
 root_taxon_id:

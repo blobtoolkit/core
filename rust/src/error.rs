@@ -13,6 +13,8 @@ pub enum Error {
     AxisNotDefined(String),
     #[error("File not found: {0}")]
     FileNotFound(String),
+    #[error("Header not found: {0}")]
+    HeaderNotFound(String),
     #[error("Index not found: {0}")]
     IndexError(String),
     #[error("Image suffix not supported: {0}")]

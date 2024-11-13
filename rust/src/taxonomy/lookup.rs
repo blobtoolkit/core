@@ -1,6 +1,9 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
+use fst::automaton::Levenshtein;
+use fst::{IntoStreamer, Set, Streamer};
+
 use crate::taxonomy::parse::{Name, Node};
 use crate::{taxonomy::parse, utils::styled_progress_bar};
 
@@ -67,6 +70,21 @@ pub fn build_lookup(
     table
 }
 
+pub fn build_fuzzy_lookup(
+    nodes: &Nodes,
+    name_classes: &Vec<String>,
+    rank_letter: bool,
+) -> Set<Vec<u8>> {
+    let table = build_lookup(&nodes, &name_classes, rank_letter);
+    let mut keys = table
+        .into_iter()
+        .map(|(key, _value)| key)
+        .collect::<Vec<String>>();
+    keys.sort();
+    let set: Set<Vec<u8>> = Set::from_iter(keys).unwrap();
+    set
+}
+
 pub fn build_lineage_lookup(nodes: &Nodes, root_id: &String) -> HashMap<String, String> {
     let node_count = nodes.nodes.len();
     let progress_bar = styled_progress_bar(node_count, "Building lookup hash");
@@ -91,12 +109,13 @@ pub fn build_lineage_lookup(nodes: &Nodes, root_id: &String) -> HashMap<String, 
 pub fn lookup_nodes(
     new_nodes: &Nodes,
     nodes: &mut Nodes,
+    table: &mut HashMap<String, Vec<String>>,
+    fuzzy_table: Option<&Set<Vec<u8>>>,
     new_name_classes: &Vec<String>,
     name_classes: &Vec<String>,
     xref_label: Option<String>,
     create_taxa: bool,
-) {
-    let mut table = build_lookup(&nodes, &name_classes, true);
+) -> (HashMap<String, String>, HashMap<String, Vec<String>>) {
     let ranks = [
         "subspecies",
         "species",
@@ -108,6 +127,7 @@ pub fn lookup_nodes(
     ];
     let mut matched: HashMap<String, String> = HashMap::new();
     let mut unmatched: HashMap<String, Vec<String>> = HashMap::new();
+    let mut spellcheck: HashMap<String, Vec<String>> = HashMap::new();
     let higher_ranks = ["family", "order", "class", "phylum", "kingdom"];
     let higher_rank_set: HashSet<&str> = HashSet::from_iter(higher_ranks.iter().cloned());
     let node_count = new_nodes.nodes.len();
@@ -141,7 +161,37 @@ pub fn lookup_nodes(
                                 n_name
                             );
                             match table.get(&key) {
-                                None => (),
+                                None => {
+                                    if let Some(fuzzy_table) = fuzzy_table {
+                                        if let Some(_) = spellcheck.get::<str>(name.as_ref()) {
+                                            continue;
+                                        }
+                                        let lev = Levenshtein::new(key.as_ref(), 1).unwrap();
+                                        let stream = fuzzy_table.search(lev).into_stream();
+                                        let values = stream.into_strs().unwrap();
+                                        if values.len() >= 1 {
+                                            spellcheck.insert(
+                                                name.clone(),
+                                                values
+                                                    .into_iter()
+                                                    .flat_map(|v: String| {
+                                                        let mut ids = vec![];
+                                                        ids.push(key.clone());
+                                                        ids.extend(
+                                                            table
+                                                                .get::<str>(v.as_ref())
+                                                                .unwrap()
+                                                                .clone(),
+                                                        );
+                                                        ids.push(v);
+
+                                                        ids
+                                                    })
+                                                    .collect::<Vec<String>>(),
+                                            );
+                                        }
+                                    }
+                                }
                                 Some(value) => {
                                     if value.len() == 1 {
                                         matched.insert(node.tax_id(), value[0].clone());
@@ -155,6 +205,9 @@ pub fn lookup_nodes(
                     if match_tax_id.is_some() {
                         break;
                     }
+                }
+                if match_tax_id.is_some() {
+                    break;
                 }
             }
             if let Some(ref_tax_id) = match_tax_id {
@@ -246,22 +299,5 @@ pub fn lookup_nodes(
         }
     }
     progress_bar.finish();
-    // for rank in ranks {
-    //     eprintln!(
-    //         "{:?}: {:?}, {:?}",
-    //         rank,
-    //         match matched.entry(rank.to_string()) {
-    //             Entry::Vacant(_) => 0,
-    //             Entry::Occupied(e) => {
-    //                 e.get().len()
-    //             }
-    //         },
-    //         match unmatched.entry(rank.to_string()) {
-    //             Entry::Vacant(_) => 0,
-    //             Entry::Occupied(e) => {
-    //                 e.get().len()
-    //             }
-    //         },
-    //     )
-    // }
+    (matched, spellcheck)
 }

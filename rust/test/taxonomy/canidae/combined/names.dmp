@@ -1,0 +1,70 @@
+33208	|	Animalia	|		|	synonym	|
+33208	|	animals	|		|	blast name	|
+33208	|	metazoans	|		|	genbank common name	|
+33208	|	Metazoa	|		|	scientific name	|
+33208	|	multicellular animals	|		|	common name	|
+6072	|	Eumetazoa	|		|	scientific name	|
+33213	|	Bilateria	|		|	scientific name	|
+33511	|	deuterostomes	|		|	common name	|
+33511	|	Deuterostomia	|		|	scientific name	|
+7711	|	Chordata	|		|	scientific name	|
+7711	|	chordates	|		|	blast name	|
+7711	|	chordates	|		|	genbank common name	|
+89593	|	Craniata	|		|	scientific name	|
+7742	|	Vertebrata Cuvier, 1812	|		|	authority	|
+7742	|	Vertebrata	|		|	scientific name	|
+7742	|	vertebrates	|		|	blast name	|
+7742	|	vertebrates	|		|	genbank common name	|
+7776	|	Gnathostomata	|		|	scientific name	|
+7776	|	jawed vertebrates	|		|	genbank common name	|
+117570	|	Teleostomi	|		|	scientific name	|
+117571	|	bony vertebrates	|		|	genbank common name	|
+117571	|	Euteleostomi	|		|	scientific name	|
+8287	|	Sarcopterygii	|		|	scientific name	|
+1338369	|	Dipnotetrapodomorpha	|		|	scientific name	|
+32523	|	Tetrapoda	|		|	scientific name	|
+32523	|	tetrapods	|		|	genbank common name	|
+32524	|	Amniota	|		|	scientific name	|
+32524	|	amniotes	|		|	genbank common name	|
+40674	|	Mammalia	|		|	scientific name	|
+40674	|	mammals	|		|	blast name	|
+40674	|	mammals	|		|	genbank common name	|
+32525	|	Theria Parker & Haswell, 1897	|		|	authority	|
+32525	|	Theria	|		|	scientific name	|
+9347	|	eutherian mammals	|		|	common name	|
+9347	|	Eutheria	|		|	scientific name	|
+9347	|	Placentalia	|		|	synonym	|
+9347	|	placental mammals	|		|	common name	|
+9347	|	placentals	|		|	blast name	|
+9347	|	placentals	|		|	genbank common name	|
+1437010	|	Boreoeutheria	|		|	scientific name	|
+1437010	|	Boreotheria	|		|	synonym	|
+314145	|	Laurasiatheria	|		|	scientific name	|
+33554	|	Carnivora	|		|	scientific name	|
+33554	|	carnivores	|		|	blast name	|
+33554	|	carnivores	|		|	genbank common name	|
+379584	|	Caniformia	|		|	scientific name	|
+9608	|	Canidae	|		|	scientific name	|
+9608	|	dog, coyote, wolf, fox	|		|	genbank common name	|
+9608	|	Canidae	|	:Canidae	|		|
+9608	|	Canidae	|	:Canidae	|		|
+9608	|	Canidae	|	:Canidae	|		|
+9611	|	Canis	|		|	scientific name	|
+9611	|	Canis	|	:Canis	|		|
+9611	|	Canis	|	:Canis	|		|
+9612	|	Canis lupus Linnaeus, 1758	|		|	authority	|
+9612	|	Canis lupus	|		|	scientific name	|
+9612	|	gray wolf	|		|	genbank common name	|
+9612	|	grey wolf	|		|	common name	|
+9612	|	Canis lupus	|	:Canis lupus	|		|
+9625	|	Alopex	|		|	includes	|
+9625	|	Fennecus	|		|	synonym	|
+9625	|	Vulpes	|		|	scientific name	|
+9625	|	Vulpes	|	:Vulpes	|		|
+9627	|	Canis vulpes Linnaeus, 1758	|		|	authority	|
+9627	|	Canis vulpes	|		|	synonym	|
+9627	|	red fox	|		|	genbank common name	|
+9627	|	silver fox	|		|	common name	|
+9627	|	Vulpes vulpes (Linnaeus, 1758)	|		|	authority	|
+9627	|	Vulpes vulpes	|		|	scientific name	|
+9627	|	Vulpes vulpes	|	:Vulpes vulpes	|		|

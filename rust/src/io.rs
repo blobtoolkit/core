@@ -1,13 +1,14 @@
 extern crate atty;
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs::{create_dir_all, File};
-use std::io::{self, BufRead, BufReader, BufWriter, Result, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Result, Seek, Write};
 use std::path::{Path, PathBuf};
 
+use csv::ReaderBuilder;
 use flate2::read::GzDecoder;
 use flate2::write;
 use flate2::Compression;
-use std::ffi::OsStr;
 
 fn read_stdin() -> Vec<Vec<u8>> {
     let stdin = io::stdin();
@@ -108,4 +109,31 @@ pub fn file_reader(path: PathBuf) -> Option<Box<dyn BufRead>> {
     } else {
         return Some(Box::new(BufReader::new(file)));
     };
+}
+
+pub fn csv_reader(
+    header: bool,
+    delimiter: u8,
+    path: PathBuf,
+) -> Result<csv::Reader<Box<dyn Read>>> {
+    let file = File::open(&path)?;
+    let mut buf = [0; 2];
+    let mut reader = file.try_clone()?;
+
+    reader.read_exact(&mut buf)?;
+    reader.rewind()?;
+
+    let rdr: csv::Reader<Box<dyn std::io::Read>> = if buf == [0x1f, 0x8b] {
+        ReaderBuilder::new()
+            .has_headers(header)
+            .delimiter(delimiter)
+            .from_reader(Box::new(BufReader::new(GzDecoder::new(file))))
+    } else {
+        ReaderBuilder::new()
+            .has_headers(header)
+            .delimiter(delimiter)
+            .from_reader(Box::new(BufReader::new(file)))
+    };
+
+    Ok(rdr)
 }

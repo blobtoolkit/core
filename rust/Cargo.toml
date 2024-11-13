@@ -47,6 +47,7 @@ coord_transforms = "1.4.0"
 cpc = "1.9.3"
 csv = "1.2.2"
 flate2 = "1.0.25"
+fst = { version = "0.4.7", features = [ "levenshtein" ]}
 glob = "0.3.1"
 indexmap = "1.9.2"
 indicatif = "0.17.2"
