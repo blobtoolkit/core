@@ -497,11 +497,16 @@ impl GridSize {
         let padding = 10.0;
         let outer_bottom_left_margin = 50.0;
         let outer_top_right_margin = dimensions.margin.right;
-        let col_width = (width
-            - outer_bottom_left_margin
-            - outer_top_right_margin
-            - (padding * 2.0 + bottom_left_margin + top_right_margin) * num_cols as f64)
-            / num_cols as f64;
+        let col_width = match ratios {
+            Some(_) => {
+                (width
+                    - outer_bottom_left_margin
+                    - outer_top_right_margin
+                    - (padding * 2.0 + bottom_left_margin + top_right_margin) * num_cols as f64)
+                    / num_cols as f64
+            }
+            None => (width - outer_bottom_left_margin - outer_top_right_margin) / num_cols as f64,
+        };
         let col_widths = match ratios.as_ref() {
             Some(r) => {
                 let ratio_sum = r.iter().sum::<f64>();
@@ -607,16 +612,6 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
     let mut titles = vec![];
     let mut col = 0;
     for (i, blob_data) in grid_data.iter().enumerate() {
-        // if Some("position".to_string()) == options.x_field {
-        //     if let Some(field_list) = new_meta.field_list.as_ref() {
-        //         if let Some(range) = field_list
-        //             .get_mut("position")
-        //             .and_then(|field| field.range.as_mut())
-        //         {
-        //             range[1] *= grid_size.ratios[col];
-        //         }
-        //     }
-        // }
         let mut new_meta = (*meta).clone();
         if let Some(field_list) = new_meta.field_list.as_ref() {
             let mut new_field_list = field_list.clone();
