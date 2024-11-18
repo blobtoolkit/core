@@ -2,6 +2,7 @@
 //! Invoked by calling:
 //! `blobtk plot <args>`
 
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -439,20 +440,6 @@ fn set_grid_data(
             title: Some(filtered_identifiers[i].clone()),
         })
     }
-    // let blob_data = BlobData {
-    //     x: window_values["x"][0].clone(),
-    //     y: window_values["y"][0].clone(),
-    //     z: window_values["z"][0].clone(),
-    //     cat: window_cat_values[0]
-    //         .iter()
-    //         .map(|c| match c {
-    //             Some((_, idx)) => Some(idx.to_owned() + 1),
-    //             None => None,
-    //         })
-    //         .collect(),
-    //     cat_order,
-    // };
-    // dbg!(window_values);
     Ok((plot_meta, grid_data, limits))
 }
 
@@ -465,6 +452,8 @@ pub struct GridSize {
     num_cols: usize,
     row_height: f64,
     col_width: f64,
+    col_widths: Vec<f64>,
+    ratios: Vec<f64>,
     margin: TopRightBottomLeft,
     padding: TopRightBottomLeft,
     outer_margin: TopRightBottomLeft,
@@ -483,6 +472,8 @@ impl Default for GridSize {
             num_cols: 1,
             row_height: dimensions.height,
             col_width: dimensions.width,
+            col_widths: vec![dimensions.width],
+            ratios: vec![1.0],
             margin: TopRightBottomLeft {
                 ..Default::default()
             },
@@ -497,7 +488,7 @@ impl Default for GridSize {
 }
 
 impl GridSize {
-    pub fn new(num_items: usize, dimensions: &BlobDimensions) -> Self {
+    pub fn new(num_items: usize, dimensions: &BlobDimensions, ratios: Option<Vec<f64>>) -> Self {
         let (num_cols, num_rows) = calculate_grid_size(num_items);
         let height = dimensions.height;
         let width = dimensions.width;
@@ -506,6 +497,25 @@ impl GridSize {
         let padding = 10.0;
         let outer_bottom_left_margin = 50.0;
         let outer_top_right_margin = dimensions.margin.right;
+        let col_width = (width
+            - outer_bottom_left_margin
+            - outer_top_right_margin
+            - (padding * 2.0 + bottom_left_margin + top_right_margin) * num_cols as f64)
+            / num_cols as f64;
+        let col_widths = match ratios.as_ref() {
+            Some(r) => {
+                let ratio_sum = r.iter().sum::<f64>();
+                r.iter()
+                    .map(|x| {
+                        (x * col_width / ratio_sum * num_cols as f64)
+                            + padding * 2.0
+                            + bottom_left_margin
+                            + top_right_margin
+                    })
+                    .collect()
+            }
+            None => vec![col_width; num_cols],
+        };
         GridSize {
             num_items,
             height,
@@ -514,8 +524,12 @@ impl GridSize {
             num_cols,
             row_height: (height - outer_bottom_left_margin - outer_top_right_margin)
                 / num_rows as f64,
-            col_width: (width - outer_bottom_left_margin - outer_top_right_margin)
-                / num_cols as f64,
+            col_width,
+            col_widths,
+            ratios: match ratios {
+                Some(ref r) => r.clone(),
+                None => vec![1.0; num_cols],
+            },
             margin: TopRightBottomLeft {
                 top: 10.0,
                 right: top_right_margin,
@@ -568,10 +582,52 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
     let dimensions = BlobDimensions {
         ..Default::default()
     };
-    let grid_size = GridSize::new(grid_data.len(), &dimensions);
+    let mut ratios = None;
+    if Some("position".to_string()) == options.x_field {
+        let (_, num_rows) = calculate_grid_size(grid_data.len());
+        let max_values = grid_data
+            .chunks(num_rows)
+            .map(|chunk| {
+                chunk
+                    .iter()
+                    .map(|x| x.x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()))
+                    .max_by(|a, b| a.partial_cmp(b).unwrap())
+            })
+            .collect::<Vec<_>>();
+        let x_max = limits["x"][1];
+        ratios = Some(
+            max_values
+                .iter()
+                .map(|x| (x.unwrap().unwrap() / x_max * 10.0).ceil() / 10.0)
+                .collect::<Vec<_>>(),
+        );
+    }
+    let grid_size = GridSize::new(grid_data.len(), &dimensions, ratios);
     let mut scatter_data = vec![];
     let mut titles = vec![];
-    for blob_data in grid_data {
+    let mut col = 0;
+    for (i, blob_data) in grid_data.iter().enumerate() {
+        // if Some("position".to_string()) == options.x_field {
+        //     if let Some(field_list) = new_meta.field_list.as_ref() {
+        //         if let Some(range) = field_list
+        //             .get_mut("position")
+        //             .and_then(|field| field.range.as_mut())
+        //         {
+        //             range[1] *= grid_size.ratios[col];
+        //         }
+        //     }
+        // }
+        let mut new_meta = (*meta).clone();
+        if let Some(field_list) = new_meta.field_list.as_ref() {
+            let mut new_field_list = field_list.clone();
+            if let Some(field) = new_field_list.get_mut("position") {
+                let mut new_range = field.range.unwrap_or([0.0, 1.0]);
+                // new_range[1] *= grid_size.ratios[col];
+                field.range = Some(new_range);
+            }
+            new_meta.field_list = Some(new_field_list.clone());
+        }
+
         titles.push(blob_data.title.clone());
         scatter_data.push(blob::blob_points(
             plot_meta.clone(),
@@ -582,7 +638,7 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
                     - grid_size.padding.bottom
                     - grid_size.margin.top
                     - grid_size.margin.bottom,
-                width: grid_size.col_width
+                width: grid_size.col_widths[col]
                     - grid_size.padding.left
                     - grid_size.padding.right
                     - grid_size.margin.left
@@ -591,10 +647,17 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
                 margin: grid_size.margin.clone(),
                 ..Default::default()
             },
-            &meta,
+            &new_meta,
             &options,
-            Some(limits.clone()),
+            Some({
+                let mut new_limits = limits.clone();
+                new_limits.get_mut("x").unwrap()[1] *= grid_size.ratios[col];
+                new_limits
+            }),
         ));
+        if (i + 1) % grid_size.num_rows == 0 {
+            col += 1;
+        }
     }
     // let blob_data = grid_data;
 

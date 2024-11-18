@@ -28,7 +28,7 @@ fn default_level() -> String {
     "scaffold".to_string()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AssemblyMeta {
     #[serde(default = "default_accession")]
     pub accession: String,
@@ -84,7 +84,7 @@ pub struct PlotMeta {
     pub cat: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TaxonMeta {
     #[serde(default = "default_taxname")]
     pub name: String,
@@ -110,7 +110,7 @@ fn default_taxid() -> String {
     "0".to_string()
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Meta {
     pub id: String,
     pub name: String,

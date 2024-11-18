@@ -663,17 +663,8 @@ pub fn plot_grid(
     let y_label = labels.1;
     let height = grid_size.row_height - grid_size.margin.top - grid_size.margin.bottom;
 
-    let width = grid_size.col_width - grid_size.margin.left - grid_size.margin.right;
-
     let mut charts = vec![];
 
-    let range = [
-        grid_size.margin.left,
-        grid_size.col_width
-            - grid_size.padding.right
-            - grid_size.padding.left
-            - grid_size.margin.right,
-    ];
     let offset = grid_size.row_height - grid_size.margin.bottom; // - grid_size.margin.bottom;
                                                                  // let y_range = [
                                                                  //     grid_size.row_height - grid_size.margin.top - grid_size.margin.bottom,
@@ -695,6 +686,15 @@ pub fn plot_grid(
         let row = i % grid_size.num_rows;
         let x_opts = data.x.clone();
         let y_opts = data.y.clone();
+        let width = grid_size.col_widths[col] - grid_size.margin.left - grid_size.margin.right;
+
+        let range = [
+            grid_size.margin.left,
+            grid_size.col_widths[col]
+                - grid_size.padding.right
+                - grid_size.padding.left
+                - grid_size.margin.right,
+        ];
 
         charts.push(Chart {
             axes: ChartAxes {
@@ -757,7 +757,7 @@ pub fn plot_grid(
             scatter_data: Some(data.clone()),
             dimensions: Dimensions {
                 height: grid_size.row_height,
-                width: grid_size.col_width,
+                width: grid_size.col_widths[col],
                 margin: grid_size.margin,
                 padding: grid_size.padding,
             },
@@ -827,10 +827,13 @@ pub fn plot_grid(
                 .add(nodeText::new(x_label)),
         );
     let mut i = 0;
+    let mut x_offset = grid_size.outer_margin.left;
     for chart in charts {
         let col = i / grid_size.num_rows;
         let row = i % grid_size.num_rows;
-        let x_offset = col as f64 * grid_size.col_width + grid_size.outer_margin.left;
+        if row == 0 && col > 0 {
+            x_offset += grid_size.col_widths[col - 1];
+        }
         let y_offset = row as f64 * grid_size.row_height + grid_size.outer_margin.top;
         let mut group =
             Group::new().add(chart.svg(grid_size.margin.left, grid_size.margin.top, None));
@@ -849,7 +852,7 @@ pub fn plot_grid(
                             format!(
                                 "translate({:?}, {:?})",
                                 grid_size.margin.left
-                                    + (grid_size.col_width
+                                    + (grid_size.col_widths[col]
                                         - grid_size.margin.left
                                         - grid_size.margin.right)
                                         / 2.0,
