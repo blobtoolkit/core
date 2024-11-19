@@ -1,6 +1,6 @@
 [package]
 name = "blobtk"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 authors = [
     "Rich Challis <rc28@sanger.ac.uk>",
