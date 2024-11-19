@@ -588,7 +588,7 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
         ..Default::default()
     };
     let mut ratios = None;
-    if Some("position".to_string()) == options.x_field {
+    if Some("position".to_string()) == options.x_field && options.x_limit.is_none() {
         let (_, num_rows) = calculate_grid_size(grid_data.len());
         let max_values = grid_data
             .chunks(num_rows)
@@ -612,17 +612,6 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
     let mut titles = vec![];
     let mut col = 0;
     for (i, blob_data) in grid_data.iter().enumerate() {
-        let mut new_meta = (*meta).clone();
-        if let Some(field_list) = new_meta.field_list.as_ref() {
-            let mut new_field_list = field_list.clone();
-            if let Some(field) = new_field_list.get_mut("position") {
-                let mut new_range = field.range.unwrap_or([0.0, 1.0]);
-                // new_range[1] *= grid_size.ratios[col];
-                field.range = Some(new_range);
-            }
-            new_meta.field_list = Some(new_field_list.clone());
-        }
-
         titles.push(blob_data.title.clone());
         scatter_data.push(blob::blob_points(
             plot_meta.clone(),
@@ -642,7 +631,7 @@ pub fn plot_grid(meta: &blobdir::Meta, options: &cli::PlotOptions) -> Result<(),
                 margin: grid_size.margin.clone(),
                 ..Default::default()
             },
-            &new_meta,
+            &meta,
             &options,
             Some({
                 let mut new_limits = limits.clone();
