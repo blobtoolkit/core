@@ -13,7 +13,7 @@ use pyo3::pyclass;
 
 use crate::blobdir;
 use crate::blobdir::parse_field_identifiers;
-use crate::blobdir::parse_field_string;
+use crate::blobdir::parse_field_synonym;
 use crate::cli;
 use crate::cli::Shape;
 use crate::error;
@@ -419,7 +419,17 @@ fn set_grid_data(
         &options.window_size,
     )?;
     let identifiers = parse_field_identifiers("identifiers".to_string(), &options.blobdir)?;
-    let filtered_identifiers = blobdir::apply_filter_string(&identifiers, &wanted_indices);
+    let filtered_identifiers;
+    if let Some(synonym_field) = &options.synonym_field {
+        let synonyms = parse_field_synonym(synonym_field.clone(), &options.blobdir)?;
+        filtered_identifiers = blobdir::apply_filter_option_string_with_fallback(
+            &synonyms,
+            &wanted_indices,
+            &identifiers,
+        );
+    } else {
+        filtered_identifiers = blobdir::apply_filter_string(&identifiers, &wanted_indices);
+    }
     let mut grid_data = vec![];
     for (i, x) in window_values["x"].iter().enumerate() {
         if x.is_empty() {

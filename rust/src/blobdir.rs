@@ -82,6 +82,7 @@ pub struct PlotMeta {
     pub y: Option<String>,
     pub z: Option<String>,
     pub cat: Option<String>,
+    pub labels: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -427,6 +428,49 @@ pub fn parse_field_cat_windows(
             windows.push(value);
         }
         values.push(windows);
+    }
+    Ok(values)
+}
+
+pub fn parse_field_synonym(
+    field_name: String,
+    blobdir: &PathBuf,
+) -> Result<Vec<Option<String>>, error::Error> {
+    let mut id = field_name.clone();
+    let mut name_header = None;
+    if field_name.contains("/") {
+        let (new_id, new_name_header) = field_name.split_once("/").unwrap();
+        id = new_id.to_string();
+        name_header = Some(new_name_header.to_string());
+    }
+
+    let reader = match file_reader(blobdir, &format!("{}.json", &id)) {
+        Some(reader) => reader,
+        None => {
+            return Err(error::Error::FileNotFound(format!(
+                "{}/{}.json",
+                &blobdir.to_str().unwrap(),
+                &id
+            )))
+        }
+    };
+    let field: Field<Vec<String>> = serde_json::from_reader(reader).expect("unable to parse json");
+    let mut values: Vec<Option<String>> = vec![];
+    let mut name_slot = 0;
+    if let Some(headers) = field.headers.clone() {
+        if let Some(n_header) = name_header {
+            if let Some(slot) = headers.iter().position(|x| x == &n_header) {
+                name_slot = slot;
+            }
+        }
+    }
+    dbg!(&name_slot);
+    for value in field.values() {
+        values.push(if value.len() >= name_slot + 1 {
+            Some(value[name_slot].clone())
+        } else {
+            None
+        })
     }
     Ok(values)
 }
@@ -820,6 +864,21 @@ pub fn apply_filter_string(values: &Vec<String>, indices: &Vec<usize>) -> Vec<St
     let mut output = vec![];
     for i in indices {
         output.push(values[i.clone()].clone())
+    }
+    output
+}
+
+pub fn apply_filter_option_string_with_fallback(
+    values: &Vec<Option<String>>,
+    indices: &Vec<usize>,
+    fallback: &Vec<String>,
+) -> Vec<String> {
+    let mut output = vec![];
+    for i in indices {
+        output.push(match &values[i.clone()] {
+            Some(v) => v.clone(),
+            _ => fallback[i.clone()].clone(),
+        })
     }
     output
 }

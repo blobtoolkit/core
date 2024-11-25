@@ -313,6 +313,9 @@ pub struct PlotOptions {
     /// Category field for blob plot
     #[arg(long = "category", short = 'c')]
     pub cat_field: Option<String>,
+    /// Field to use for sequence identifier synonyms
+    #[arg(long = "synonyms")]
+    pub synonym_field: Option<String>,
     /// Resolution for blob plot
     #[arg(long, default_value_t = 30)]
     pub resolution: usize,

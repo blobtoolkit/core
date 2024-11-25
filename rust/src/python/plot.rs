@@ -11,65 +11,6 @@ use crate::python::utils::{
 };
 use pyo3::prelude::*;
 
-// #[pymethods]
-// impl PlotOptions {
-//     #[new]
-//     #[allow(clippy::too_many_arguments)]
-//     fn new(
-//         blobdir: PathBuf,
-//         view: View,
-//         output: Option<String>,
-//         filter: Option<Vec<String>>,
-//         segments: Option<usize>,
-//         max_span: Option<usize>,
-//         max_scaffold: Option<usize>,
-//         x_field: Option<String>,
-//         y_field: Option<String>,
-//         z_field: Option<String>,
-//         cat_field: Option<String>,
-//         resolution: Option<usize>,
-//         hist_height: Option<usize>,
-//         reducer_function: Option<Reducer>,
-//         scale_function: Option<Scale>,
-//         scale_factor: Option<f64>,
-//         x_limit: Option<String>,
-//         y_limit: Option<String>,
-//         cat_count: Option<usize>,
-//         show_legend: Option<ShowLegend>,
-//         cat_order: Option<String>,
-//         origin: Option<Origin>,
-//         palette: Option<Palette>,
-//         color: Option<Vec<String>>,
-//     ) -> Self {
-//         PlotOptions {
-//             blobdir,
-//             view,
-//             output: output.unwrap_or(String::from("output.svg")),
-//             filter: filter.unwrap_or_default(),
-//             segments: segments.unwrap_or(1000),
-//             max_span,
-//             max_scaffold,
-//             x_field,
-//             y_field,
-//             z_field,
-//             cat_field,
-//             resolution: resolution.unwrap_or(30),
-//             hist_height,
-//             reducer_function: reducer_function.unwrap_or_default(),
-//             scale_function: scale_function.unwrap_or_default(),
-//             scale_factor: scale_factor.unwrap_or(1.0),
-//             x_limit,
-//             y_limit,
-//             cat_count: cat_count.unwrap_or(10),
-//             show_legend: show_legend.unwrap_or_default(),
-//             cat_order,
-//             origin,
-//             palette,
-//             color,
-//         }
-//     }
-// }
-
 #[pyfunction]
 pub fn plot_with_options(options: &PlotOptions) -> PyResult<()> {
     let meta = parse_blobdir(&options.blobdir).unwrap();
@@ -97,6 +38,7 @@ fn convert_hashmap_to_options(py: Python<'_>, map: HashMap<String, PyObject>) ->
     let y_field = extract_to_option_string(py, &map, "y_field");
     let z_field = extract_to_option_string(py, &map, "z_field");
     let cat_field = extract_to_option_string(py, &map, "cat_field");
+    let synonym_field = extract_to_option_string(py, &map, "synonym_field");
     let resolution = extract_to_option_usize(py, &map, "resolution");
     let hist_height = extract_to_option_usize(py, &map, "hist_height");
     let reducer_function = extract_to_option_reducer(py, &map, "reducer_function");
@@ -124,6 +66,7 @@ fn convert_hashmap_to_options(py: Python<'_>, map: HashMap<String, PyObject>) ->
         y_field,
         z_field,
         cat_field,
+        synonym_field,
         resolution: resolution.unwrap_or(30),
         hist_height,
         reducer_function: reducer_function.unwrap_or_default(),
