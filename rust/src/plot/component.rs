@@ -9,7 +9,9 @@ use svg::node::element::path::Data;
 use svg::node::element::{Circle, Group, Line, Path, Rectangle, Text};
 use svg::node::Text as nodeText;
 
-use crate::utils::{format_si, linear_scale, linear_scale_float, scale_float, scale_floats};
+use crate::utils::{
+    format_si, linear_scale, linear_scale_float, min_float, scale_float, scale_floats,
+};
 
 use super::axis::{AxisOptions, Position, Scale, TickOptions, TickStatus};
 use super::style::path_open;
@@ -29,6 +31,7 @@ pub struct RadialTick {
 #[derive(Clone, Debug)]
 pub struct Tick {
     pub label: Text,
+    pub label_width: f64,
     pub path: Path,
     pub position: f64,
     pub gridline: Path,
@@ -40,6 +43,7 @@ impl Default for Tick {
         Tick {
             label: Text::new(),
             path: Path::new(),
+            label_width: 0.0,
             position: 0.0,
             gridline: Path::new(),
             status: TickStatus::Major,
@@ -307,13 +311,14 @@ pub fn set_tick(
             .set("stroke", "none")
             .set("fill", "black")
             .set("transform", format!("translate({:?}, {:?})", -15, offset,))
-            .add(nodeText::new(label)),
+            .add(nodeText::new(label.clone())),
         TickStatus::Minor => Text::new(),
     };
 
     Tick {
         label: text,
         path,
+        label_width: label.len() as f64 * 11.0, // Assuming an average character width of 10.0
         position: offset,
         status: match status {
             TickStatus::Major => TickStatus::Major,
@@ -431,15 +436,16 @@ pub fn create_tick(
                 "transform",
                 format!("translate({:?}, {:?}) rotate({:?})", x_text, y_text, angle),
             )
-            .add(nodeText::new(label)) //,
-                                       // TickStatus::Minor => Text::new(),
-                                       // }
+            .add(nodeText::new(&label)) //,
+                                        // TickStatus::Minor => Text::new(),
+                                        // }
     } else {
         Text::new()
     };
 
     Tick {
         label: text,
+        label_width: label.len() as f64 * 11.0, // Assuming an average character width of 10.0
         path,
         position: location,
         gridline,
@@ -1066,23 +1072,37 @@ pub fn chart_axis(plot_axis: &AxisOptions) -> (Group, Group) {
     if plot_axis.major_ticks.is_some() {
         let major_ticks = create_axis_ticks(&plot_axis, TickStatus::Major);
         major_tick_count = major_ticks.len();
-        for tick in major_ticks {
-            major_tick_group = major_tick_group.add(tick.path).add(tick.label);
-            major_gridline_group = major_gridline_group.add(tick.gridline);
+        if major_tick_count > 0 {
+            add_ticks_to_axis(
+                major_ticks,
+                &mut major_tick_group,
+                &mut major_gridline_group,
+            );
         }
     };
 
     let mut minor_tick_group = Group::new();
     if plot_axis.minor_ticks.is_some() {
         let minor_ticks = create_axis_ticks(&plot_axis, TickStatus::Minor);
-        for tick in minor_ticks {
-            minor_tick_group = if major_tick_count == 0 {
-                major_gridline_group = major_gridline_group.add(tick.gridline);
-                minor_tick_group.add(tick.path).add(tick.label)
-            } else {
-                minor_tick_group.add(tick.path)
-            };
+        if major_tick_count == 0 {
+            add_ticks_to_axis(
+                minor_ticks,
+                &mut minor_tick_group,
+                &mut major_gridline_group,
+            );
+        } else {
+            for tick in minor_ticks {
+                minor_tick_group = minor_tick_group.add(tick.path);
+            }
         }
+        // for tick in minor_ticks {
+        //     minor_tick_group = if major_tick_count == 0 {
+        //         major_gridline_group = major_gridline_group.add(tick.gridline);
+        //         minor_tick_group.add(tick.path).add(tick.label)
+        //     } else {
+        //         minor_tick_group.add(tick.path)
+        //     };
+        // }
     }
 
     let (x1, y1, x2, y2, label_x, label_y, label_rotate) = match plot_axis.position {
@@ -1161,4 +1181,37 @@ pub fn chart_axis(plot_axis: &AxisOptions) -> (Group, Group) {
             .add(label),
         Group::new().add(major_gridline_group),
     )
+}
+
+fn add_ticks_to_axis(
+    major_ticks: Vec<Tick>,
+    major_tick_group: &mut Group,
+    major_gridline_group: &mut Group,
+) {
+    let mut first_position = major_ticks[0].position;
+    let mut last_position = major_ticks[major_ticks.len() - 1].position;
+    let mut major_ticks = major_ticks;
+    if first_position > last_position {
+        major_ticks.reverse();
+        last_position = first_position;
+        first_position = major_ticks[0].position;
+    }
+    let mut previous_position = first_position;
+    for (i, tick) in major_ticks.iter().enumerate() {
+        let show_tick = if i == 0 {
+            true
+        } else {
+            let mut diff = tick.position - previous_position;
+            if i < major_ticks.len() - 1 {
+                diff = min_float(diff, last_position - tick.position);
+            }
+            diff > tick.label_width
+        };
+        *major_tick_group = major_tick_group.clone().add(tick.path.clone());
+        if show_tick {
+            previous_position = tick.position;
+            *major_tick_group = major_tick_group.clone().add(tick.label.clone());
+        }
+        *major_gridline_group = major_gridline_group.clone().add(tick.gridline.clone());
+    }
 }
