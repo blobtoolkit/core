@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use flate2::read::GzDecoder;
 use glob::glob;
+use reqwest;
 use serde;
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::*;
@@ -195,17 +196,35 @@ pub fn get_path(dir: &PathBuf, prefix: &str) -> Option<String> {
 }
 
 pub fn file_reader(dir: &PathBuf, prefix: &str) -> Option<Box<dyn BufRead>> {
-    let path = match get_path(dir, prefix) {
-        Some(string) => string,
-        None => return None,
-    };
-    let file = File::open(&path).expect("no such file");
-
-    if path.ends_with(".gz") {
-        return Some(Box::new(BufReader::new(GzDecoder::new(file))));
+    let blobdir = dir.to_str().unwrap();
+    if blobdir.starts_with("http") {
+        let mut url = format!("{}", dir.to_str().unwrap());
+        if !prefix.starts_with("meta.") {
+            url = format!(
+                "{}/{}",
+                url.replace("/dataset/id/", "/field/"),
+                prefix.replace(".json", "")
+            );
+        }
+        let response = reqwest::blocking::get(&url).expect("Failed to fetch file");
+        if response.status().is_success() {
+            return Some(Box::new(BufReader::new(response)));
+        } else {
+            return None;
+        }
     } else {
-        return Some(Box::new(BufReader::new(file)));
-    };
+        let path = match get_path(dir, prefix) {
+            Some(string) => string,
+            None => return None,
+        };
+        let file = File::open(&path).expect("no such file");
+
+        if path.ends_with(".gz") {
+            return Some(Box::new(BufReader::new(GzDecoder::new(file))));
+        } else {
+            return Some(Box::new(BufReader::new(file)));
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
@@ -232,7 +251,7 @@ pub fn parse_blobdir(blobdir: &PathBuf) -> Result<Meta, error::Error> {
                 "{}/meta.json",
                 &blobdir.to_str().unwrap()
             )))
-        }
+        } // }
     };
     let mut meta: Meta = match serde_json::from_reader(reader) {
         Ok(meta) => meta,
@@ -438,8 +457,8 @@ pub fn parse_field_synonym(
 ) -> Result<Vec<Option<String>>, error::Error> {
     let mut id = field_name.clone();
     let mut name_header = None;
-    if field_name.contains("/") {
-        let (new_id, new_name_header) = field_name.split_once("/").unwrap();
+    if field_name.contains(".") {
+        let (new_id, new_name_header) = field_name.split_once(".").unwrap();
         id = new_id.to_string();
         name_header = Some(new_name_header.to_string());
     }
@@ -464,7 +483,6 @@ pub fn parse_field_synonym(
             }
         }
     }
-    dbg!(&name_slot);
     for value in field.values() {
         values.push(if value.len() >= name_slot + 1 {
             Some(value[name_slot].clone())

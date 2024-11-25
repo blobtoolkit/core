@@ -2,7 +2,6 @@
 //! Invoked by calling:
 //! `blobtk plot <args>`
 
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -409,7 +408,7 @@ fn set_grid_data(
     ),
     anyhow::Error,
 > {
-    let (plot_meta, plot_values, wanted_indices, z, cat_order, cat_indices) =
+    let (plot_meta, _plot_values, wanted_indices, _z, cat_order, _cat_indices) =
         set_blob_filters(options, meta)?;
     let (window_values, window_cat_values, limits) = blobdir::get_window_values(
         &meta,
@@ -459,9 +458,9 @@ pub struct GridSize {
     height: f64,
     width: f64,
     num_rows: usize,
-    num_cols: usize,
+    // num_cols: usize,
     row_height: f64,
-    col_width: f64,
+    // col_width: f64,
     col_widths: Vec<f64>,
     ratios: Vec<f64>,
     margin: TopRightBottomLeft,
@@ -479,9 +478,9 @@ impl Default for GridSize {
             height: dimensions.height,
             width: dimensions.width,
             num_rows: 1,
-            num_cols: 1,
+            // num_cols: 1,
             row_height: dimensions.height,
-            col_width: dimensions.width,
+            // col_width: dimensions.width,
             col_widths: vec![dimensions.width],
             ratios: vec![1.0],
             margin: TopRightBottomLeft {
@@ -536,10 +535,10 @@ impl GridSize {
             height,
             width,
             num_rows,
-            num_cols,
+            // num_cols,
             row_height: (height - outer_bottom_left_margin - outer_top_right_margin)
                 / num_rows as f64,
-            col_width,
+            // col_width,
             col_widths,
             ratios: match ratios {
                 Some(ref r) => r.clone(),

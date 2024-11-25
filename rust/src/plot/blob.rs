@@ -346,6 +346,9 @@ pub fn blob_points(
         Some(Shape::Grid) => {
             for (i, x) in x_scaled.iter().enumerate() {
                 if let Some(cat_index) = blob_data.cat[i] {
+                    if blob_data.cat_order.len() < cat_index + 1 {
+                        continue;
+                    }
                     let cat = blob_data.cat_order[cat_index].clone();
                     let point = ScatterPoint {
                         x: *x,
@@ -657,7 +660,7 @@ pub fn plot_grid(
     scatter_data: Vec<ScatterData>,
     titles: Vec<Option<String>>,
     labels: (String, String),
-    options: &cli::PlotOptions,
+    _options: &cli::PlotOptions,
 ) -> Document {
     let x_label = labels.0;
     let y_label = labels.1;
@@ -679,7 +682,7 @@ pub fn plot_grid(
     ];
 
     let font_size = 20.0;
-    let line_weight = 2.0;
+    // let line_weight = 2.0;
 
     for (i, data) in scatter_data.iter().enumerate() {
         let col = i / grid_size.num_rows;
@@ -765,10 +768,10 @@ pub fn plot_grid(
         });
     }
 
-    let legend_x = match options.show_legend {
-        ShowLegend::Compact => grid_size.width - 100.0,
-        _ => grid_size.width - 185.0,
-    };
+    // let legend_x = match options.show_legend {
+    //     ShowLegend::Compact => grid_size.width - 100.0,
+    //     _ => grid_size.width - 185.0,
+    // };
 
     let processed_font_family = font_family("Roboto, Open sans, DejaVu Sans, Arial, sans-serif");
 
