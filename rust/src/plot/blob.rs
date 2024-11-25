@@ -838,6 +838,13 @@ pub fn plot_grid(
         let mut group =
             Group::new().add(chart.svg(grid_size.margin.left, grid_size.margin.top, None));
         if let Some(ref title) = titles[i] {
+            let mut title = title.clone();
+            if title.len() > 3 && title.len() as f64 * 10.0 > grid_size.col_widths[col] {
+                title = format!(
+                    "{}...",
+                    title[..(grid_size.col_widths[col] / 10.0) as usize - 3].to_string()
+                );
+            }
             group = group
                 .add(
                     Text::new()
