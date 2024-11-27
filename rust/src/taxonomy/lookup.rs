@@ -1,5 +1,8 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::ffi::CString;
+
+use blart::TreeMap;
 
 use crate::taxonomy::parse::{Name, Node};
 use crate::{taxonomy::parse, utils::styled_progress_bar};
@@ -11,6 +14,7 @@ pub fn build_lookup(
     name_classes: &Vec<String>,
     rank_letter: bool,
 ) -> HashMap<String, Vec<String>> {
+    dbg!(&name_classes);
     let ranks = [
         "subspecies",
         "species",
@@ -33,7 +37,7 @@ pub fn build_lookup(
         progress_bar.inc(1);
         if rank_set.contains(node.rank.as_str()) {
             let lineage = nodes.lineage(&"1".to_string(), tax_id);
-            let names = node.names_by_class(Some(&name_classes), true);
+            let names = node.names_by_class(Some(&name_classes), true).clone();
             for n in lineage.iter().rev() {
                 let n_names = n.names_by_class(Some(&name_classes), true);
                 for name in names.iter() {
@@ -264,4 +268,79 @@ pub fn lookup_nodes(
     //         },
     //     )
     // }
+}
+
+#[derive(Debug)]
+pub struct Ids {
+    pub tax_id: String,
+    pub rank: String,
+    pub anc_ids: HashSet<String>,
+}
+
+pub fn build_fast_lookup(nodes: &Nodes, name_classes: &Vec<String>) -> TreeMap<CString, Ids> {
+    dbg!(&name_classes);
+    let ranks = [
+        "subspecies",
+        "species",
+        "genus",
+        "family",
+        "order",
+        "class",
+        "phylum",
+        "kingdom",
+    ];
+    let higher_ranks = ["family", "order", "class", "phylum", "kingdom"];
+    let mut id_map: TreeMap<_, _> = TreeMap::new();
+
+    let rank_set: HashSet<&str> = HashSet::from_iter(ranks.iter().cloned());
+    let higher_rank_set: HashSet<&str> = HashSet::from_iter(higher_ranks.iter().cloned());
+    let node_count = nodes.nodes.len();
+    let progress_bar = styled_progress_bar(node_count, "Building lookup hash");
+
+    for (tax_id, node) in nodes.nodes.iter() {
+        progress_bar.inc(1);
+        if rank_set.contains(node.rank.as_str()) {
+            let lineage = nodes.lineage(&"1".to_string(), tax_id);
+            let names = node.names_by_class(Some(&name_classes), true);
+            let anc_ids: HashSet<String> = lineage
+                .iter()
+                .filter(|n| higher_rank_set.contains(n.rank.as_str()))
+                .map(|n| n.tax_id())
+                .collect();
+            for name in names {
+                if name.ends_with("lupus") {
+                    dbg!(&name);
+                }
+                let result = id_map.insert(
+                    CString::new(name.clone()).unwrap(),
+                    Ids {
+                        tax_id: tax_id.clone(),
+                        rank: node.rank.clone(),
+                        anc_ids: anc_ids.clone(),
+                    },
+                );
+            }
+        }
+    }
+
+    let to_find = [
+        "canis lupus",
+        "cnis latrans",
+        "canidae",
+        "felidae",
+        "panthera leo",
+    ];
+    progress_bar.finish();
+    for name in to_find {
+        match id_map.get(&CString::new(name).unwrap()) {
+            Some(ids) => println!("{name}: {}", ids.tax_id),
+            None => {
+                println!("{name} is missing");
+                let fuzzy: Vec<_> = id_map.fuzzy(&CString::new(name).unwrap(), 2).collect();
+                dbg!(fuzzy);
+            }
+        }
+    }
+
+    id_map
 }

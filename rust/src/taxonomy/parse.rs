@@ -946,7 +946,7 @@ fn apply_validation(value: String, field: &GHubsFieldConfig) -> Result<bool, err
 }
 
 fn apply_function(value: String, field: &GHubsFieldConfig) -> String {
-    if value == "" {
+    if value == "" || value == "None" {
         return "None".to_string();
     }
     let mut val = value;
@@ -1049,11 +1049,21 @@ fn nodes_from_file(
     let mut path = config_file.clone();
     path.pop();
     path.push(file_config.name.clone());
+    dbg!(&path);
 
-    let mut rdr = ReaderBuilder::new()
-        .has_headers(file_config.header)
-        .delimiter(delimiter)
-        .from_path(path)?;
+    let mut rdr = {
+        let file = std::fs::File::open(&path)?;
+        let reader: Box<dyn std::io::Read> =
+            if path.extension().and_then(|s| s.to_str()) == Some("gz") {
+                Box::new(flate2::read::GzDecoder::new(file))
+            } else {
+                Box::new(file)
+            };
+        ReaderBuilder::new()
+            .has_headers(file_config.header)
+            .delimiter(delimiter)
+            .from_reader(reader)
+    };
     let headers = rdr.headers()?;
     let keys = vec!["attributes", "taxonomy"];
     for key in keys.iter() {
@@ -1073,7 +1083,8 @@ fn nodes_from_file(
             }
         }
         // let status = record.get(4).unwrap();
-        dbg!(processed);
+        let taxonomy_section = processed.get(&"taxonomy").unwrap();
+        dbg!(taxonomy_section);
     }
     Ok(())
 }
@@ -1088,6 +1099,7 @@ pub fn parse_file(
         Ok(ghubs_config) => ghubs_config,
         Err(err) => return Err(err),
     };
+    dbg!(&ghubs_config);
     let nodes = nodes_from_file(&config_file, &mut ghubs_config, &lookup_table);
     dbg!(&nodes);
 
@@ -1232,7 +1244,8 @@ mod tests {
             )
         );
         assert_eq!(
-            Node::parse("2	|	131567	|	superkingdom	|		|	0	|	0	|	11	|	0	|	0	|	0	|	0	|	0	|		|").unwrap(),
+            Node::parse("2	|	131567	|	superkingdom	|		|	0	|	0	|	11	|	0	|	0	|	0	|	0	|	0	|		|")
+                .unwrap(),
             (
                 "\t|",
                 Node {
