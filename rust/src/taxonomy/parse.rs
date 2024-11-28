@@ -9,12 +9,14 @@ use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::CString;
 use std::fmt;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow;
+use blart::TreeMap;
 use convert_case::{Case, Casing};
 use cpc::{eval, units::Unit};
 use csv::{ReaderBuilder, StringRecord};
@@ -34,7 +36,7 @@ use struct_iterable::Iterable;
 use crate::error;
 use crate::io;
 
-use super::lookup::build_lookup;
+use super::lookup::{build_lookup, match_taxonomy_section, TaxonInfo};
 
 /// A taxon name
 #[derive(Clone, Debug, Default, Eq, Iterable, Ord, PartialEq, PartialOrd)]
@@ -1039,7 +1041,7 @@ fn validate_values(
 fn nodes_from_file(
     config_file: &PathBuf,
     ghubs_config: &mut GHubsConfig,
-    _lookup_table: &HashMap<String, Vec<String>>,
+    id_map: &TreeMap<CString, TaxonInfo>,
 ) -> Result<(), error::Error> {
     let file_config = ghubs_config.file.as_ref().unwrap();
     let delimiter = match file_config.format {
@@ -1049,7 +1051,6 @@ fn nodes_from_file(
     let mut path = config_file.clone();
     path.pop();
     path.push(file_config.name.clone());
-    dbg!(&path);
 
     let mut rdr = {
         let file = std::fs::File::open(&path)?;
@@ -1073,6 +1074,8 @@ fn nodes_from_file(
     }
     // dbg!(&ghubs_config);
 
+    // let mut encountered = HashSet::new();
+
     for result in rdr.records() {
         let record = result?;
         let mut processed = HashMap::new();
@@ -1084,14 +1087,15 @@ fn nodes_from_file(
         }
         // let status = record.get(4).unwrap();
         let taxonomy_section = processed.get(&"taxonomy").unwrap();
-        dbg!(taxonomy_section);
+
+        match_taxonomy_section(taxonomy_section, id_map);
     }
     Ok(())
 }
 
 pub fn parse_file(
     config_file: PathBuf,
-    lookup_table: &HashMap<String, Vec<String>>,
+    id_map: &TreeMap<CString, TaxonInfo>,
 ) -> Result<(), error::Error> {
     // let mut children = HashMap::new();
 
@@ -1099,9 +1103,7 @@ pub fn parse_file(
         Ok(ghubs_config) => ghubs_config,
         Err(err) => return Err(err),
     };
-    dbg!(&ghubs_config);
-    let nodes = nodes_from_file(&config_file, &mut ghubs_config, &lookup_table);
-    dbg!(&nodes);
+    let nodes = nodes_from_file(&config_file, &mut ghubs_config, &id_map);
 
     // let mut rdr = ReaderBuilder::new()
     //     .has_headers(false)

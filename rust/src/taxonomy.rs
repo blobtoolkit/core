@@ -162,18 +162,18 @@ pub fn taxonomy(options: &cli::TaxonomyOptions) -> Result<(), anyhow::Error> {
     }
 
     if let Some(genomehubs_files) = options.genomehubs_files.clone() {
-        let table = build_fast_lookup(&nodes, &options.name_classes);
+        let id_map = build_fast_lookup(&nodes, &options.name_classes);
         for genomehubs_file in genomehubs_files {
             // match taxa to nodes
-            // let names = parse_file(genomehubs_file, &table).unwrap();
+            let names = parse_file(genomehubs_file, &id_map).unwrap();
         }
     }
 
-    // if let Some(taxdump_out) = options.out.clone() {
-    //     let root_taxon_ids = options.root_taxon_id.clone();
-    //     let base_taxon_id = options.base_taxon_id.clone();
-    //     write_taxdump(&nodes, root_taxon_ids, base_taxon_id, taxdump_out);
-    // }
+    if let Some(taxdump_out) = options.out.clone() {
+        let root_taxon_ids = options.root_taxon_id.clone();
+        let base_taxon_id = options.base_taxon_id.clone();
+        write_taxdump(&nodes, root_taxon_ids, base_taxon_id, taxdump_out);
+    }
 
     // if let Some(gbif_backbone) = options.gbif_backbone.clone() {
     //     // let trie = build_trie(&nodes);
