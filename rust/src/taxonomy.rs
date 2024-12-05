@@ -165,7 +165,7 @@ pub fn taxonomy(options: &cli::TaxonomyOptions) -> Result<(), anyhow::Error> {
         let id_map = build_fast_lookup(&nodes, &options.name_classes);
         for genomehubs_file in genomehubs_files {
             // match taxa to nodes
-            let names = parse_file(genomehubs_file, &id_map).unwrap();
+            let names = parse_file(genomehubs_file, &id_map)?;
         }
     }
 

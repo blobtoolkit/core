@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 
 use blart::TreeMap;
-use serde_json::de;
 
 use crate::taxonomy::parse::{Name, Node};
 use crate::{taxonomy::parse, utils::styled_progress_bar};
@@ -269,7 +268,10 @@ pub struct TaxonInfo {
     pub anc_ids: HashSet<String>,
 }
 
-pub fn build_fast_lookup(nodes: &Nodes, name_classes: &Vec<String>) -> TreeMap<CString, TaxonInfo> {
+pub fn build_fast_lookup(
+    nodes: &Nodes,
+    name_classes: &Vec<String>,
+) -> TreeMap<CString, Vec<TaxonInfo>> {
     let mut id_map: TreeMap<_, _> = TreeMap::new();
 
     let rank_set: HashSet<&str> = HashSet::from_iter(RANKS.iter().cloned());
@@ -288,37 +290,26 @@ pub fn build_fast_lookup(nodes: &Nodes, name_classes: &Vec<String>) -> TreeMap<C
                 .map(|n| n.tax_id())
                 .collect();
             for name in names {
-                let result = id_map.insert(
-                    CString::new(name.clone()).unwrap(),
-                    TaxonInfo {
-                        tax_id: tax_id.clone(),
-                        name: node.scientific_name(),
-                        rank: node.rank(),
-                        anc_ids: anc_ids.clone(),
-                    },
-                );
+                let key = name.clone();
+                let taxon_info = TaxonInfo {
+                    tax_id: tax_id.clone(),
+                    name: node.scientific_name(),
+                    rank: node.rank(),
+                    anc_ids: anc_ids.clone(),
+                };
+                match id_map.entry(CString::new(key.clone()).unwrap()) {
+                    blart::map::Entry::Vacant(e) => {
+                        e.insert(vec![taxon_info]);
+                    }
+                    blart::map::Entry::Occupied(mut e) => {
+                        e.get_mut().push(taxon_info);
+                    }
+                }
             }
         }
     }
 
     progress_bar.finish();
-    // let to_find = [
-    //     "canis lupus",
-    //     "cnis latrans",
-    //     "canidae",
-    //     "felidae",
-    //     "panthera leo",
-    // ];
-    // for name in to_find {
-    //     match id_map.get(&CString::new(name).unwrap()) {
-    //         Some(ids) => println!("{name}: {}", ids.tax_id),
-    //         None => {
-    //             println!("{name} is missing");
-    //             let fuzzy: Vec<_> = id_map.fuzzy(&CString::new(name).unwrap(), 2).collect();
-    //             dbg!(fuzzy);
-    //         }
-    //     }
-    // }
 
     id_map
 }
@@ -335,6 +326,7 @@ pub struct Candidate {
 pub enum MatchStatus {
     Match(Candidate),
     Mismatch(Candidate),
+    MultiMatch(Vec<Candidate>),
     PutativeMatch(Candidate),
     #[default]
     None,
@@ -350,11 +342,72 @@ pub struct TaxonMatch {
     pub higher_options: Option<Vec<Candidate>>,
 }
 
+fn check_higher_taxon(taxon: &Candidate, higher_taxon: &Candidate) {
+    let higher_tax_id = higher_taxon.clone().tax_id.unwrap();
+    if taxon.anc_ids.clone().unwrap().contains(&higher_tax_id) {
+        println!("Taxon {} has taxID {}", higher_taxon.name, higher_tax_id);
+    } else {
+        println!(
+            "Taxon {} is not an ancestor of {}",
+            taxon.name,
+            taxon.tax_id.clone().unwrap(),
+        );
+    }
+}
+
+fn check_higher_rank(taxon: &Candidate, taxon_match: &TaxonMatch) {
+    match taxon_match.higher_status.clone() {
+        Some(MatchStatus::Match(_)) => (),
+        Some(MatchStatus::Mismatch(_)) => (),
+        Some(MatchStatus::MultiMatch(higher_taxa)) => {
+            println!("Taxon {} has multiple matches", taxon_match.taxon.name);
+        }
+        Some(MatchStatus::PutativeMatch(higher_taxon)) => {
+            check_higher_taxon(taxon, &higher_taxon);
+        }
+        _ => {
+            if let Some(higher_options) = taxon_match.higher_options.clone() {
+                for higher_taxon in higher_options.iter() {
+                    check_higher_taxon(taxon, &higher_taxon);
+                }
+            }
+            // println!("No match for taxon name {}", taxon_match.taxon.name);
+        }
+    }
+}
+
 pub fn match_taxonomy_section(
     taxonomy_section: &HashMap<String, String>,
-    id_map: &TreeMap<CString, TaxonInfo>,
+    id_map: &TreeMap<CString, Vec<TaxonInfo>>,
 ) -> TaxonMatch {
-    let taxon_id = taxonomy_section.get("taxon_id");
+    let mut taxon_id = taxonomy_section.get("taxon_id");
+    if taxon_id.is_none() {
+        //
+    } else if let Some(tax_id) = taxon_id {
+        if tax_id == "None" {
+            taxon_id = None;
+        }
+    } else if let Some(ids) = id_map.get(&CString::new(taxon_id.unwrap().clone()).unwrap()) {
+        if ids.len() == 1 {
+            return TaxonMatch {
+                taxon: Candidate {
+                    tax_id: Some(ids[0].tax_id.clone()),
+                    rank: ids[0].rank.clone(),
+                    name: ids[0].name.clone(),
+                    anc_ids: Some(ids[0].anc_ids.clone()),
+                },
+                taxon_id: Some(ids[0].tax_id.clone()),
+                rank_status: Some(MatchStatus::Match(Candidate {
+                    tax_id: Some(ids[0].tax_id.clone()),
+                    rank: ids[0].rank.clone(),
+                    name: ids[0].name.clone(),
+                    anc_ids: Some(ids[0].anc_ids.clone()),
+                })),
+                ..Default::default()
+            };
+        }
+    }
+
     let mut ranks = vec![];
     if taxonomy_section.contains_key("taxon") {
         ranks.push("taxon".to_string());
@@ -364,10 +417,9 @@ pub fn match_taxonomy_section(
             ranks.push(rank.to_string());
         }
     }
-    let lower_ranks: HashSet<&str> = RANKS[0..4].iter().cloned().collect();
+    let lower_ranks: HashSet<&str> = RANKS[0..3].iter().cloned().collect();
 
     let mut taxon_match = TaxonMatch::default();
-    let mut anc_ids = HashSet::new();
     for (i, rank) in ranks.iter().enumerate() {
         let mut name = taxonomy_section.get(rank).unwrap().clone();
         let taxon = Candidate {
@@ -381,6 +433,8 @@ pub fn match_taxonomy_section(
                 taxon: taxon.clone(),
                 ..Default::default()
             };
+        } else if lower_ranks.contains(rank.as_str()) {
+            continue;
         }
         name = name
             .chars()
@@ -394,51 +448,95 @@ pub fn match_taxonomy_section(
             .collect();
         match id_map.get(&CString::new(name.clone()).unwrap()) {
             Some(ids) => {
-                if i == 0 {
-                    // Same rank as record
-                    if let Some(tax_id) = taxon_id {
-                        // has taxon ID
-                        if tax_id.clone() == ids.tax_id {
-                            // Exact match
-                            taxon_match.rank_status = Some(MatchStatus::Match(taxon.clone()));
-                            taxon_match.taxon_id = Some(ids.tax_id.clone());
-                            break;
+                if ids.len() > 1 {
+                    let mut candidates = vec![];
+                    for id in ids.iter() {
+                        candidates.push(Candidate {
+                            tax_id: Some(id.tax_id.clone()),
+                            rank: id.rank.clone(),
+                            name: id.name.clone(),
+                            anc_ids: Some(id.anc_ids.clone()),
+                        });
+                    }
+                    if i == 0 {
+                        if let Some(tax_id) = taxon_match.clone().taxon.tax_id {
+                            let mut has_match = false;
+                            for candidate in candidates.iter() {
+                                if tax_id == candidate.tax_id.clone().unwrap() {
+                                    taxon_match.rank_status =
+                                        Some(MatchStatus::Match(taxon.clone()));
+                                    taxon_match.taxon_id = Some(candidate.tax_id.clone().unwrap());
+                                    has_match = true;
+                                    break;
+                                }
+                            }
+                            if !has_match {
+                                println!(
+                                    "multi mismatch for {}: {} at rank {}",
+                                    taxon.name, tax_id, &rank
+                                );
+                                // if i == 0 {
+                                //     taxon_match.rank_status = Some(MatchStatus::MultiMatch(candidates));
+                                // } else {
+                                //     taxon_match.higher_status =
+                                //         Some(MatchStatus::MultiMatch(candidates));
+                                // }
+                            }
                         } else {
-                            // Mismatched taxon_id, possible namespace collision
-                            taxon_match.rank_status = Some(MatchStatus::Mismatch(Candidate {
-                                tax_id: Some(ids.tax_id.clone()),
-                                ..taxon.clone()
-                            }));
-                            anc_ids = ids.anc_ids.clone();
+                            taxon_match.rank_status = Some(MatchStatus::MultiMatch(candidates));
                         }
                     } else {
-                        // no taxon ID
-                        taxon_match.rank_status = Some(MatchStatus::PutativeMatch(Candidate {
-                            tax_id: Some(ids.tax_id.clone()),
-                            anc_ids: Some(ids.anc_ids.clone()),
-                            rank: ids.rank.clone(),
-                            name: ids.name.clone(),
-                        }));
-                        anc_ids = ids.anc_ids.clone();
+                        taxon_match.higher_status = Some(MatchStatus::MultiMatch(candidates));
                     }
-                } else if lower_ranks.contains(rank.as_str()) {
-                    continue;
                 } else {
-                    // Higher rank
-                    if anc_ids.contains(&ids.tax_id) {
-                        taxon_match = TaxonMatch {
-                            higher_status: Some(MatchStatus::Match(taxon.clone())),
-                            ..taxon_match
-                        };
-                    } else if anc_ids.len() > 0 {
-                        taxon_match = TaxonMatch {
-                            higher_status: Some(MatchStatus::Mismatch(Candidate {
+                    let ids = ids.first().unwrap();
+                    if i == 0 {
+                        // Same rank as record
+                        if let Some(tax_id) = taxon_id {
+                            // has taxon ID
+                            if tax_id.clone() == ids.tax_id {
+                                // Exact match
+                                taxon_match.rank_status = Some(MatchStatus::Match(taxon.clone()));
+                                taxon_match.taxon_id = Some(ids.tax_id.clone());
+                                break;
+                            } else {
+                                // Mismatched taxon_id, possible namespace collision
+                                taxon_match.rank_status = Some(MatchStatus::Mismatch(Candidate {
+                                    tax_id: Some(ids.tax_id.clone()),
+                                    ..taxon.clone()
+                                }));
+                            }
+                        } else {
+                            // no taxon ID
+                            taxon_match.rank_status = Some(MatchStatus::PutativeMatch(Candidate {
                                 tax_id: Some(ids.tax_id.clone()),
-                                ..taxon.clone()
-                            })),
-                            ..taxon_match
-                        };
+                                anc_ids: Some(ids.anc_ids.clone()),
+                                rank: ids.rank.clone(),
+                                name: ids.name.clone(),
+                            }));
+                        }
                     } else {
+                        // Higher rank
+                        // if anc_ids.contains(&ids.tax_id) {
+                        //     taxon_match = TaxonMatch {
+                        //         higher_status: Some(MatchStatus::Match(Candidate {
+                        //             tax_id: Some(ids.tax_id.clone()),
+                        //             ..taxon.clone()
+                        //         })),
+                        //         ..taxon_match
+                        //     };
+                        // } else
+                        // if anc_ids.len() > 0 {
+                        //     taxon_match = TaxonMatch {
+                        //         higher_status: Some(MatchStatus::Mismatch(Candidate {
+                        //             tax_id: Some(ids.tax_id.clone()),
+                        //             rank: ids.rank.clone(),
+                        //             name: ids.name.clone(),
+                        //             anc_ids: Some(ids.anc_ids.clone()),
+                        //         })),
+                        //         ..taxon_match
+                        //     };
+                        // } else {
                         taxon_match = TaxonMatch {
                             higher_status: Some(MatchStatus::PutativeMatch(Candidate {
                                 tax_id: Some(ids.tax_id.clone()),
@@ -448,8 +546,9 @@ pub fn match_taxonomy_section(
                             })),
                             ..taxon_match
                         };
+                        // }
+                        break;
                     }
-                    break;
                 }
             }
             None => {
@@ -459,15 +558,25 @@ pub fn match_taxonomy_section(
                     .collect();
                 if fuzzy.len() > 0 {
                     let mut candidates = vec![];
-                    for f in fuzzy.iter() {
-                        if i > 0 || f.1.rank == taxon_match.taxon.rank {
-                            candidates.push(Candidate {
-                                tax_id: Some(f.1.tax_id.clone()),
-                                rank: f.1.rank.clone(),
-                                name: f.1.name.clone(),
-                                anc_ids: Some(f.1.anc_ids.clone()),
-                            });
+                    for fuzzies in fuzzy.iter() {
+                        for f in fuzzies.1.iter() {
+                            if i > 0 || f.rank == taxon_match.taxon.rank {
+                                candidates.push(Candidate {
+                                    tax_id: Some(f.tax_id.clone()),
+                                    rank: f.rank.clone(),
+                                    name: f.name.clone(),
+                                    anc_ids: Some(f.anc_ids.clone()),
+                                });
+                            }
                         }
+                        // if i > 0 || f.1.rank == taxon_match.taxon.rank {
+                        //     candidates.push(Candidate {
+                        //         tax_id: Some(f.1.tax_id.clone()),
+                        //         rank: f.1.rank.clone(),
+                        //         name: f.1.name.clone(),
+                        //         anc_ids: Some(f.1.anc_ids.clone()),
+                        //     });
+                        // }
                     }
                     if candidates.len() > 0 {
                         if i == 0 {
@@ -480,8 +589,52 @@ pub fn match_taxonomy_section(
             }
         }
     }
-    if taxon_match.taxon_id.is_none() {
-        dbg!(&taxon_match);
+    match taxon_match.rank_status.clone() {
+        Some(MatchStatus::Match(taxon)) => {
+            // println!("Taxon {} has taxID {}", taxon.name, taxon.tax_id.unwrap());
+        }
+        Some(MatchStatus::Mismatch(taxon)) => {
+            // println!(
+            //     "Taxon {} has mismatched taxID, {} != {}",
+            //     taxon_match.taxon.name,
+            //     taxon_match.taxon.tax_id.clone().unwrap(),
+            //     taxon.tax_id.unwrap()
+            // );
+            // TODO: check merged IDs
+        }
+        Some(MatchStatus::MultiMatch(taxa)) => {
+            println!("Taxon {} has multiple matches", taxon_match.taxon.name);
+            for taxon in taxa.iter() {
+                println!(
+                    "checking match to {}: {}",
+                    taxon.name,
+                    taxon.clone().tax_id.unwrap()
+                );
+                check_higher_rank(&taxon, &taxon_match);
+            }
+        }
+        Some(MatchStatus::PutativeMatch(taxon)) => {
+            // println!(
+            //     "Taxon {} has putative match to {}",
+            //     taxon_match.taxon.name,
+            //     taxon.clone().tax_id.unwrap()
+            // );
+            // check_higher_rank(&taxon, &taxon_match);
+        }
+        _ => {
+            if let Some(rank_options) = taxon_match.rank_options.clone() {
+                for taxon in rank_options.iter() {
+                    // println!(
+                    //     "Taxon {} has potential match to {}, {}",
+                    //     taxon_match.taxon.name,
+                    //     taxon.name,
+                    //     taxon.tax_id.clone().unwrap()
+                    // );
+                    // check_higher_rank(&taxon, &taxon_match);
+                }
+            }
+            // println!("No match for taxon name {}", taxon_match.taxon.name);
+        }
     }
     taxon_match
 }

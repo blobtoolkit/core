@@ -1041,7 +1041,7 @@ fn validate_values(
 fn nodes_from_file(
     config_file: &PathBuf,
     ghubs_config: &mut GHubsConfig,
-    id_map: &TreeMap<CString, TaxonInfo>,
+    id_map: &TreeMap<CString, Vec<TaxonInfo>>,
 ) -> Result<(), error::Error> {
     let file_config = ghubs_config.file.as_ref().unwrap();
     let delimiter = match file_config.format {
@@ -1053,7 +1053,14 @@ fn nodes_from_file(
     path.push(file_config.name.clone());
 
     let mut rdr = {
-        let file = std::fs::File::open(&path)?;
+        let file = std::fs::File::open(&path).map_err(|e| {
+            error::Error::FileNotFound(format!(
+                "Failed to open file {}: {}\nCalled from: {}",
+                path.display(),
+                e,
+                config_file.display()
+            ))
+        })?;
         let reader: Box<dyn std::io::Read> =
             if path.extension().and_then(|s| s.to_str()) == Some("gz") {
                 Box::new(flate2::read::GzDecoder::new(file))
@@ -1077,6 +1084,11 @@ fn nodes_from_file(
     // let mut encountered = HashSet::new();
 
     for result in rdr.records() {
+        if let Err(err) = result {
+            eprintln!("Error reading record: {}", err);
+            // TODO: log error & write record to error file
+            continue;
+        }
         let record = result?;
         let mut processed = HashMap::new();
         for key in keys.iter() {
@@ -1095,7 +1107,7 @@ fn nodes_from_file(
 
 pub fn parse_file(
     config_file: PathBuf,
-    id_map: &TreeMap<CString, TaxonInfo>,
+    id_map: &TreeMap<CString, Vec<TaxonInfo>>,
 ) -> Result<(), error::Error> {
     // let mut children = HashMap::new();
 
@@ -1103,7 +1115,7 @@ pub fn parse_file(
         Ok(ghubs_config) => ghubs_config,
         Err(err) => return Err(err),
     };
-    let nodes = nodes_from_file(&config_file, &mut ghubs_config, &id_map);
+    let nodes = nodes_from_file(&config_file, &mut ghubs_config, &id_map)?;
 
     // let mut rdr = ReaderBuilder::new()
     //     .has_headers(false)
