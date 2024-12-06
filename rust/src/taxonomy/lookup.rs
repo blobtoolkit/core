@@ -475,12 +475,43 @@ pub fn match_taxonomy_section(
                                     "multi mismatch for {}: {} at rank {}",
                                     taxon.name, tax_id, &rank
                                 );
+                                let id_matches = id_map.get(&CString::new(tax_id.clone()).unwrap());
+                                if let Some(matches) = id_matches {
+                                    if matches.len() == 1 {
+                                        let merged_id = matches[0].tax_id.clone();
+                                        for candidate in candidates.iter() {
+                                            if merged_id == candidate.tax_id.clone().unwrap() {
+                                                taxon_match.rank_status =
+                                                    Some(MatchStatus::Mismatch(Candidate {
+                                                        tax_id: candidate.tax_id.clone(),
+                                                        rank: candidate.rank.clone(),
+                                                        name: candidate.name.clone(),
+                                                        anc_ids: candidate.anc_ids.clone(),
+                                                    }));
+                                                taxon_match.taxon_id =
+                                                    Some(candidate.tax_id.clone().unwrap());
+                                                println!(
+                                                    "Taxon {} has merged taxID {}",
+                                                    taxon.name, merged_id
+                                                );
+                                                has_match = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
                                 // if i == 0 {
                                 //     taxon_match.rank_status = Some(MatchStatus::MultiMatch(candidates));
                                 // } else {
                                 //     taxon_match.higher_status =
                                 //         Some(MatchStatus::MultiMatch(candidates));
                                 // }
+                                if !has_match {
+                                    println!(
+                                        "multi mismatch for {}: {} at rank {}",
+                                        taxon.name, tax_id, &rank
+                                    );
+                                }
                             }
                         } else {
                             taxon_match.rank_status = Some(MatchStatus::MultiMatch(candidates));
@@ -501,6 +532,13 @@ pub fn match_taxonomy_section(
                                 break;
                             } else {
                                 // Mismatched taxon_id, possible namespace collision
+                                // or may be in merged IDs
+                                let id_matches = id_map.get(&CString::new(tax_id.clone()).unwrap());
+                                if let Some(matches) = id_matches {
+                                    if matches.len() == 1 && matches[0].tax_id == ids.tax_id {
+                                        taxon_match.taxon_id = Some(matches[0].tax_id.clone());
+                                    }
+                                }
                                 taxon_match.rank_status = Some(MatchStatus::Mismatch(Candidate {
                                     tax_id: Some(ids.tax_id.clone()),
                                     ..taxon.clone()
@@ -600,6 +638,12 @@ pub fn match_taxonomy_section(
             //     taxon_match.taxon.tax_id.clone().unwrap(),
             //     taxon.tax_id.unwrap()
             // );
+            // if let Some(taxon_id) = taxon_match.taxon_id.clone() {
+            //     println!(
+            //         "Taxon {} has merged taxID {}",
+            //         taxon_match.taxon.name, taxon_id
+            //     );
+            // }
             // TODO: check merged IDs
         }
         Some(MatchStatus::MultiMatch(taxa)) => {

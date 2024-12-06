@@ -361,7 +361,7 @@ pub struct PlotOptions {
 #[derive(ValueEnum, Parser, Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum TaxonomyFormat {
-    /// NCBI taxdump containing nodes.dmp and names.dmp
+    /// NCBI taxdump containing nodes.dmp, names.dmp and merged.dmp
     NCBI,
     /// GBIF simple format backbone taxonomy
     GBIF,

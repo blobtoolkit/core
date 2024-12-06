@@ -60,6 +60,18 @@ impl Name {
             ..Default::default()
         })(input)
     }
+
+    pub fn parse_merged(input: &str) -> IResult<&str, Self> {
+        // This parser outputs a Vec(&str).
+        let parse_name = separated_list0(tag("\t|\t"), take_until("\t|"));
+        // Map the Vec(&str) into a Node.
+        map(parse_name, |v: Vec<&str>| Name {
+            tax_id: v[1].to_string(),
+            name: v[0].to_string(),
+            class: Some("merged taxon id".to_string()),
+            ..Default::default()
+        })(input)
+    }
 }
 
 impl fmt::Display for Name {
@@ -318,6 +330,26 @@ pub fn parse_taxdump(taxdump: PathBuf) -> Result<Nodes, anyhow::Error> {
                         node.scientific_name = Some(name.clone().name)
                     }
                 }
+                let mut names = node.names.as_mut();
+                if let Some(names) = names.as_mut() {
+                    names.push(name);
+                } else {
+                    node.names = Some(vec![name]);
+                }
+            }
+        }
+    }
+
+    let mut merged_file = taxdump.clone();
+    merged_file.push("merged.dmp");
+
+    // Parse merged.dmp file and add to nodes
+    if let Ok(lines) = io::read_lines(merged_file) {
+        for line in lines {
+            if let Ok(s) = line {
+                /////////////////////////////
+                let name = Name::parse_merged(&s).unwrap().1;
+                let node = nodes.get_mut(&name.tax_id).unwrap();
                 let mut names = node.names.as_mut();
                 if let Some(names) = names.as_mut() {
                     names.push(name);
