@@ -3,6 +3,7 @@
 //! `blobtk taxonomy <args>`
 
 use anyhow;
+use svg::node;
 
 // use std::time::{Duration, Instant};
 
@@ -163,10 +164,15 @@ pub fn taxonomy(options: &cli::TaxonomyOptions) -> Result<(), anyhow::Error> {
 
     if let Some(genomehubs_files) = options.genomehubs_files.clone() {
         let id_map = build_fast_lookup(&nodes, &options.name_classes);
+        dbg!(nodes.nodes.len());
         for genomehubs_file in genomehubs_files {
             // match taxa to nodes
-            let names = parse_file(genomehubs_file, &id_map)?;
+            let new_nodes = parse_file(genomehubs_file, &id_map)?;
+            // add new nodes to existing nodes
+            dbg!(new_nodes.nodes.len());
+            nodes.merge(&new_nodes)?;
         }
+        dbg!(nodes.nodes.len());
     }
 
     if let Some(taxdump_out) = options.out.clone() {

@@ -35,7 +35,10 @@ use struct_iterable::Iterable;
 
 use crate::error;
 use crate::io;
+use crate::taxonomy::lookup::MatchStatus;
 
+use super::lookup::Candidate;
+use super::lookup::TaxonMatch;
 use super::lookup::{build_lookup, match_taxonomy_section, TaxonInfo};
 
 /// A taxon name
@@ -284,6 +287,33 @@ impl Nodes {
         }
         nodes
     }
+
+    pub fn merge(&mut self, new_nodes: &Nodes) -> Result<(), anyhow::Error> {
+        let nodes = &mut self.nodes;
+        let children = &mut self.children;
+        for node in new_nodes.nodes.iter() {
+            if let Some(existing_node) = nodes.get(&node.1.tax_id) {
+                if existing_node.rank == "no rank" {
+                    nodes.insert(node.1.tax_id.clone(), node.1.clone());
+                }
+            } else {
+                nodes.insert(node.1.tax_id.clone(), node.1.clone());
+            }
+            let parent = node.1.parent_tax_id.clone();
+            let child = node.1.tax_id.clone();
+            if parent != child {
+                match children.entry(parent) {
+                    Entry::Vacant(e) => {
+                        e.insert(vec![child]);
+                    }
+                    Entry::Occupied(mut e) => {
+                        e.get_mut().push(child);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn parse_taxdump(taxdump: PathBuf) -> Result<Nodes, anyhow::Error> {
@@ -343,11 +373,14 @@ pub fn parse_taxdump(taxdump: PathBuf) -> Result<Nodes, anyhow::Error> {
     let mut merged_file = taxdump.clone();
     merged_file.push("merged.dmp");
 
+    // check if merged.dmp file exists
+    if !merged_file.exists() {
+        return Ok(Nodes { nodes, children });
+    }
     // Parse merged.dmp file and add to nodes
     if let Ok(lines) = io::read_lines(merged_file) {
         for line in lines {
             if let Ok(s) = line {
-                /////////////////////////////
                 let name = Name::parse_merged(&s).unwrap().1;
                 let node = nodes.get_mut(&name.tax_id).unwrap();
                 let mut names = node.names.as_mut();
@@ -770,6 +803,8 @@ pub struct GHubsConfig {
     pub file: Option<GHubsFileConfig>,
     /// Attribute fields
     pub attributes: Option<HashMap<String, GHubsFieldConfig>>,
+    /// Taxon names
+    pub taxon_names: Option<HashMap<String, GHubsFieldConfig>>,
     /// Taxonomy fields
     pub taxonomy: Option<HashMap<String, GHubsFieldConfig>>,
 }
@@ -779,6 +814,7 @@ impl GHubsConfig {
         match key {
             "attributes" => self.attributes.as_ref(),
             "taxonomy" => self.taxonomy.as_ref(),
+            "taxon_names" => self.taxon_names.as_ref(),
             _ => None,
         }
     }
@@ -786,6 +822,7 @@ impl GHubsConfig {
         match key {
             "attributes" => self.attributes.as_mut(),
             "taxonomy" => self.taxonomy.as_mut(),
+            "taxon_names" => self.taxon_names.as_mut(),
             _ => None,
         }
     }
@@ -798,10 +835,15 @@ impl GHubsConfig {
         let self_taxonomy = self.taxonomy;
         let other_taxonomy = other.taxonomy;
         merge_attributes(self_taxonomy, other_taxonomy, &mut merged_taxonomy);
+        let mut merged_taxon_names = HashMap::new();
+        let self_taxon_names = self.taxon_names;
+        let other_taxon_names = other.taxon_names;
+        merge_attributes(self_taxon_names, other_taxon_names, &mut merged_taxon_names);
         Self {
             file: self.file.or(other.file),
             attributes: Some(merged_attributes),
             taxonomy: Some(merged_taxonomy),
+            taxon_names: Some(merged_taxon_names),
         }
     }
 }
@@ -980,7 +1022,7 @@ fn apply_validation(value: String, field: &GHubsFieldConfig) -> Result<bool, err
 }
 
 fn apply_function(value: String, field: &GHubsFieldConfig) -> String {
-    if value == "" || value == "None" {
+    if value == "" || value == "None" || value == "NA" {
         return "None".to_string();
     }
     let mut val = value;
@@ -1069,12 +1111,88 @@ fn validate_values(
     validated
 }
 
+// Add new names to the taxonomy
+fn add_new_names(
+    taxon: &Candidate,
+    taxon_names: &HashMap<String, String>,
+    names: &mut HashMap<String, Vec<Name>>,
+    id_map: &TreeMap<CString, Vec<TaxonInfo>>,
+) {
+    if !taxon.tax_id.is_some() {
+        return;
+    }
+    let tax_id = taxon.tax_id.clone().unwrap();
+    for (name_class, name) in taxon_names.iter() {
+        if name == "None" || name == "NA" {
+            continue;
+        }
+        // does name already exist in id_map associated with the same class and taxid?
+        // if so, skip for now
+        if let Some(tax_info) = id_map.get(&CString::new(name.clone()).unwrap()) {
+            let mut found = false;
+            for info in tax_info {
+                if info.tax_id == tax_id {
+                    found = true;
+                }
+            }
+            if found {
+                continue;
+            }
+        }
+
+        let taxon_name = Name {
+            tax_id: tax_id.clone(),
+            name: name.clone(),
+            class: Some(name_class.clone()),
+            ..Default::default()
+        };
+
+        names
+            .entry(tax_id.clone())
+            .or_insert(vec![])
+            .push(taxon_name);
+    }
+}
+
+fn add_new_taxid(
+    taxon: &TaxonMatch,
+    taxonomy_section: &HashMap<String, String>,
+    id_map: &TreeMap<CString, Vec<TaxonInfo>>,
+) -> Option<Node> {
+    // check taxonomy_section has a value for alt_taxon_id that is not None or NA
+    let alt_taxon_id;
+    if let Some(alt_id) = taxonomy_section.get("alt_taxon_id") {
+        if alt_id == "None" && alt_id == "NA" {
+            return None;
+        } else {
+            alt_taxon_id = alt_id;
+        }
+    } else {
+        return None;
+    }
+    let mut node = None;
+    if let Some(higher_status) = &taxon.higher_status {
+        if let MatchStatus::PutativeMatch(higher_candidate) = higher_status {
+            // attach directly to higher taxon for now
+            node = Some(Node {
+                tax_id: alt_taxon_id.clone(),
+                parent_tax_id: higher_candidate.tax_id.clone().unwrap(),
+                rank: taxon.taxon.rank.clone(),
+                scientific_name: Some(taxon.taxon.name.clone()),
+                names: None,
+                ..Default::default()
+            });
+        }
+    }
+    node
+}
+
 // Parse taxa from a GenomeHubs data file
 fn nodes_from_file(
     config_file: &PathBuf,
     ghubs_config: &mut GHubsConfig,
     id_map: &TreeMap<CString, Vec<TaxonInfo>>,
-) -> Result<(), error::Error> {
+) -> Result<(HashMap<String, Vec<Name>>, HashMap<String, Node>), error::Error> {
     let file_config = ghubs_config.file.as_ref().unwrap();
     let delimiter = match file_config.format {
         GHubsFileFormat::CSV => b',',
@@ -1105,15 +1223,28 @@ fn nodes_from_file(
             .from_reader(reader)
     };
     let headers = rdr.headers()?;
-    let keys = vec!["attributes", "taxonomy"];
+    let keys = vec!["attributes", "taxon_names", "taxonomy"];
     for key in keys.iter() {
         if ghubs_config.get(key).is_some() {
             update_config(key, ghubs_config, headers);
         }
     }
+    let mut names = HashMap::new();
+    let mut nodes = HashMap::new();
     // dbg!(&ghubs_config);
 
     // let mut encountered = HashSet::new();
+
+    let mut ctr_assigned = 0;
+    let mut ctr_unassigned = 0;
+
+    let mut match_ctr = 0;
+    let mut merge_match_ctr = 0;
+    let mut mismatch_ctr = 0;
+    let mut multimatch_ctr = 0;
+    let mut putative_ctr = 0;
+    let mut none_ctr = 0;
+    let mut spellcheck_ctr = 0;
 
     for result in rdr.records() {
         if let Err(err) = result {
@@ -1130,31 +1261,119 @@ fn nodes_from_file(
             }
         }
         // let status = record.get(4).unwrap();
-        let taxonomy_section = processed.get(&"taxonomy").unwrap();
+        let taxonomy_section = processed.get(&"taxonomy");
+        let taxon_names_section = processed.get(&"taxon_names");
 
-        match_taxonomy_section(taxonomy_section, id_map);
+        if taxonomy_section.is_none() {
+            continue;
+        }
+
+        let (assigned_taxon, taxon_match) =
+            match_taxonomy_section(taxonomy_section.unwrap(), id_map);
+        if let Some(taxon) = assigned_taxon {
+            ctr_assigned += 1;
+            if let Some(taxon_names) = taxon_names_section {
+                add_new_names(&taxon, taxon_names, &mut names, &id_map);
+            }
+        } else {
+            ctr_unassigned += 1;
+        }
+        let mut unmatched = false;
+        if let Some(status) = taxon_match.rank_status.as_ref() {
+            match status {
+                MatchStatus::Match(_) => match_ctr += 1,
+                MatchStatus::MergeMatch(_) => merge_match_ctr += 1,
+                MatchStatus::Mismatch(_) => mismatch_ctr += 1,
+                MatchStatus::MultiMatch(_) => multimatch_ctr += 1,
+                MatchStatus::PutativeMatch(_) => putative_ctr += 1,
+                MatchStatus::None => {
+                    none_ctr += 1;
+                    unmatched = true;
+                }
+            }
+        } else if let Some(otions) = &taxon_match.rank_options {
+            spellcheck_ctr += 1;
+        } else {
+            none_ctr += 1;
+            unmatched = true;
+        }
+        if unmatched {
+            if let Some(node) = add_new_taxid(&taxon_match, taxonomy_section.unwrap(), &id_map) {
+                nodes.insert(node.tax_id.clone(), node.clone());
+                if let Some(taxon_names) = taxon_names_section {
+                    add_new_names(
+                        &Candidate {
+                            tax_id: Some(node.tax_id.clone()),
+                            ..Default::default()
+                        },
+                        taxon_names,
+                        &mut names,
+                        &id_map,
+                    );
+                }
+            }
+        }
     }
-    Ok(())
+    println!("Assigned: {}, Unassigned: {}", ctr_assigned, ctr_unassigned);
+    println!(
+        "Match: {}, Merge Match: {}, Mismatch: {}, Multi Match: {}, Putative: {}, None: {}, Spellcheck: {}",
+        match_ctr, merge_match_ctr, mismatch_ctr, multimatch_ctr, putative_ctr, none_ctr, spellcheck_ctr
+    );
+    Ok((names, nodes))
 }
 
 pub fn parse_file(
     config_file: PathBuf,
     id_map: &TreeMap<CString, Vec<TaxonInfo>>,
-) -> Result<(), error::Error> {
+) -> Result<Nodes, error::Error> {
     // let mut children = HashMap::new();
 
     let mut ghubs_config = match parse_genomehubs_config(&config_file) {
         Ok(ghubs_config) => ghubs_config,
         Err(err) => return Err(err),
     };
-    let nodes = nodes_from_file(&config_file, &mut ghubs_config, &id_map)?;
+    let (names, tmp_nodes) = nodes_from_file(&config_file, &mut ghubs_config, &id_map)?;
+    let mut nodes = Nodes {
+        nodes: HashMap::new(),
+        children: HashMap::new(),
+    };
+    for (tax_id, node) in tmp_nodes.iter() {
+        let mut node = node.clone();
+        // TODO: set xref label as unique name
+        let name = Name {
+            tax_id: tax_id.clone(),
+            name: node.scientific_name.clone().unwrap(),
+            class: Some("scientific name".to_string()),
+            ..Default::default()
+        };
+        if let Some(taxon_names) = names.get(tax_id) {
+            let mut all_names = taxon_names.clone();
+            all_names.push(name);
+            node.names = Some(all_names);
+        } else {
+            node.names = Some(vec![name]);
+        }
+        let parent = node.parent_tax_id.clone();
+        let child = node.tax_id();
+        if parent != child {
+            match nodes.children.entry(parent) {
+                Entry::Vacant(e) => {
+                    e.insert(vec![child]);
+                }
+                Entry::Occupied(mut e) => {
+                    e.get_mut().push(child);
+                }
+            }
+        }
+        nodes.nodes.insert(tax_id.clone(), node);
+    }
 
     // let mut rdr = ReaderBuilder::new()
     //     .has_headers(false)
     //     .delimiter(b'\t')
     //     .from_path(gbif_backbone)?;
 
-    Ok(())
+    Ok(nodes)
 }
 
 /// Deserializer for lineage
