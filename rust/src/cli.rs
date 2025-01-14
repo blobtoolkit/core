@@ -388,7 +388,7 @@ pub struct TaxonomyOptions {
     // #[arg(long = "data-dir", short = 'd')]
     // pub data_dir: Option<Vec<PathBuf>>,
     /// Path to output filtered backbone taxonomy
-    #[arg(long = "taxdump-out")]
+    #[arg(long = "taxdump-out", short = 'O')]
     pub out: Option<PathBuf>,
     // /// Path to GBIF backbone taxonomy file (simple text)
     // #[arg(long = "gbif-backbone", short = 'g')]
@@ -401,7 +401,7 @@ pub struct TaxonomyOptions {
     #[serde(default = "default_name_classes")]
     pub name_classes: Vec<String>,
     /// Label to use when setting as xref
-    #[clap(skip)]
+    #[arg(long = "xref-label", short = 'x')]
     pub xref_label: Option<String>,
     /// List of taxonomies to map to backbone
     #[clap(skip)]

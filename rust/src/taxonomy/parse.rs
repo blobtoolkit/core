@@ -27,7 +27,7 @@ use nom::{
     IResult,
 };
 use regex::Regex;
-use schemars::{schema_for, JsonSchema};
+use schemars::JsonSchema;
 use serde;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -52,13 +52,20 @@ pub struct Name {
 
 impl Name {
     /// Parse a node.
-    pub fn parse(input: &str) -> IResult<&str, Self> {
+    pub fn parse<'a>(input: &'a str, xref_label: &Option<String>) -> IResult<&'a str, Self> {
         // This parser outputs a Vec(&str).
         let parse_name = separated_list0(tag("\t|\t"), take_until("\t|"));
         // Map the Vec(&str) into a Node.
         map(parse_name, |v: Vec<&str>| Name {
             tax_id: v[0].to_string(),
             name: v[1].to_string(),
+            unique_name: if v[2] > "" {
+                v[2].to_string()
+            } else if let Some(label) = &xref_label {
+                format!("{}:{}", label, v[1].to_string())
+            } else {
+                "".to_string()
+            },
             class: Some(v[3].to_string()),
             ..Default::default()
         })(input)
@@ -107,6 +114,17 @@ pub struct Node {
     pub scientific_name: Option<String>,
 }
 
+const RANKS: [&str; 8] = [
+    "subspecies",
+    "species",
+    "genus",
+    "family",
+    "order",
+    "class",
+    "phylum",
+    "kingdom",
+];
+
 impl Node {
     /// Parse a node.
     pub fn parse(input: &str) -> IResult<&str, Self> {
@@ -123,6 +141,10 @@ impl Node {
 
     pub fn tax_id(&self) -> String {
         self.tax_id.clone()
+    }
+
+    pub fn parent_tax_id(&self) -> String {
+        self.parent_tax_id.clone()
     }
 
     pub fn rank(&self) -> String {
@@ -173,6 +195,23 @@ impl Node {
             }
         }
         filtered_names
+    }
+
+    pub fn to_taxonomy_section(&self, nodes: &Nodes) -> HashMap<String, String> {
+        let mut taxonomy_section = HashMap::new();
+        let root_id = "1".to_string();
+        let lineage = nodes.lineage(&root_id, &self.tax_id);
+        let ranks: HashSet<&str> = HashSet::from_iter(RANKS.iter().cloned());
+        if ranks.contains(&self.rank as &str) {
+            taxonomy_section.insert("alt_taxon_id".to_string(), self.tax_id.clone());
+            taxonomy_section.insert(self.rank.clone(), self.scientific_name());
+            for node in lineage {
+                if ranks.contains(&node.rank as &str) {
+                    taxonomy_section.insert(node.rank.clone(), node.scientific_name());
+                }
+            }
+        }
+        taxonomy_section
     }
 }
 
@@ -314,13 +353,44 @@ impl Nodes {
         }
         Ok(())
     }
+
+    pub fn add_names(
+        &mut self,
+        new_names: &HashMap<String, Vec<Name>>,
+    ) -> Result<(), anyhow::Error> {
+        let nodes = &mut self.nodes;
+        for (taxid, names) in new_names.iter() {
+            if let Some(node) = nodes.get_mut(taxid) {
+                let node_names = node.names.as_mut();
+                if let Some(node_names) = node_names {
+                    for name in names {
+                        //check if name already exists
+                        let mut found = false;
+                        for node_name in node_names.iter() {
+                            if node_name.name == name.name {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if !found {
+                            node_names.push(name.clone());
+                        }
+                    }
+                } else {
+                    node.names = Some(names.clone());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
-pub fn parse_taxdump(taxdump: PathBuf) -> Result<Nodes, anyhow::Error> {
+pub fn parse_taxdump(taxdump: PathBuf, xref_label: Option<String>) -> Result<Nodes, anyhow::Error> {
     let mut nodes = HashMap::new();
     let mut children = HashMap::new();
 
     let mut nodes_file = taxdump.clone();
+
     nodes_file.push("nodes.dmp");
 
     // Parse nodes.dmp file
@@ -353,7 +423,7 @@ pub fn parse_taxdump(taxdump: PathBuf) -> Result<Nodes, anyhow::Error> {
     if let Ok(lines) = io::read_lines(names_file) {
         for line in lines {
             if let Ok(s) = line {
-                let name = Name::parse(&s).unwrap().1;
+                let name = Name::parse(&s, &xref_label).unwrap().1;
                 let node = nodes.get_mut(&name.tax_id).unwrap();
                 if let Some(class) = name.clone().class {
                     if class == "scientific name" {
@@ -623,6 +693,8 @@ pub struct GHubsFileConfig {
     pub name: PathBuf,
     /// Additional configuration files that must be loaded
     pub needs: Option<PathBufOrVec>,
+    // /// File source
+    // pub source: Option<Source>,
 }
 
 /// GenomeHubs field constraint configuration options
@@ -844,6 +916,57 @@ impl GHubsConfig {
             attributes: Some(merged_attributes),
             taxonomy: Some(merged_taxonomy),
             taxon_names: Some(merged_taxon_names),
+        }
+    }
+}
+
+/// GenomeHubs source options
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+pub struct Source {
+    /// Source name
+    #[serde(rename = "source")]
+    pub name: String,
+    /// Source abbreviation
+    pub abbreviation: Option<String>,
+    /// Source URL (Single URL for all values)
+    #[serde(rename = "source_url")]
+    pub url: Option<String>,
+    /// Source URL stub (base URL for values)
+    #[serde(rename = "source_url_stub")]
+    pub stub: Option<String>,
+    /// Source URL suffix (suffix for values)
+    #[serde(rename = "source_slug")]
+    pub slug: Option<String>,
+    /// Source description
+    #[serde(rename = "source_description")]
+    pub description: Option<String>,
+    /// Source last updated date
+    #[serde(rename = "source_date")]
+    pub date: Option<String>,
+    /// Source contact name
+    #[serde(rename = "source_contact")]
+    pub contact: Option<String>,
+}
+
+impl Source {
+    pub fn new(config: &GHubsConfig) -> Source {
+        dbg!(&config);
+
+        if let Some(file_config) = config.file.clone() {
+            // let name = file_config.source.file_stem().unwrap().to_str().unwrap();
+            // let abbreviation = name.to_case(Case::Upper);
+            // Source {
+            //     name: name.to_string(),
+            //     abbreviation,
+            //     ..Default::default()
+            // }
+            Source {
+                ..Default::default()
+            }
+        } else {
+            Source {
+                ..Default::default()
+            }
         }
     }
 }
@@ -1325,18 +1448,20 @@ fn nodes_from_file(
 pub fn parse_file(
     config_file: PathBuf,
     id_map: &TreeMap<CString, Vec<TaxonInfo>>,
-) -> Result<Nodes, error::Error> {
+) -> Result<(Nodes, HashMap<String, Vec<Name>>, Source), error::Error> {
     // let mut children = HashMap::new();
 
     let mut ghubs_config = match parse_genomehubs_config(&config_file) {
         Ok(ghubs_config) => ghubs_config,
         Err(err) => return Err(err),
     };
+    // let source = Source::new(&ghubs_config);
     let (names, tmp_nodes) = nodes_from_file(&config_file, &mut ghubs_config, &id_map)?;
     let mut nodes = Nodes {
         nodes: HashMap::new(),
         children: HashMap::new(),
     };
+    let source = Source::new(&ghubs_config);
     for (tax_id, node) in tmp_nodes.iter() {
         let mut node = node.clone();
         // TODO: set xref label as unique name
@@ -1373,7 +1498,7 @@ pub fn parse_file(
     //     .delimiter(b'\t')
     //     .from_path(gbif_backbone)?;
 
-    Ok(nodes)
+    Ok((nodes, names, source))
 }
 
 /// Deserializer for lineage
@@ -1481,7 +1606,7 @@ mod tests {
     #[test]
     fn test_parse_name() {
         assert_eq!(
-            Name::parse("1	|	all	|		|	synonym	|").unwrap(),
+            Name::parse("1	|	all	|		|	synonym	|", &None).unwrap(),
             (
                 "\t|",
                 Name {

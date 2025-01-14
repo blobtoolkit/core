@@ -107,15 +107,12 @@ fn taxdump_to_nodes(
     let nodes;
     if let Some(taxdump) = options.path.clone() {
         nodes = match options.taxonomy_format {
-            Some(cli::TaxonomyFormat::NCBI) => parse_taxdump(taxdump).unwrap(),
+            Some(cli::TaxonomyFormat::NCBI) => {
+                parse_taxdump(taxdump, options.xref_label.clone()).unwrap()
+            }
             Some(cli::TaxonomyFormat::GBIF) => parse_gbif(taxdump).unwrap(),
             Some(cli::TaxonomyFormat::ENA) => parse_ena_jsonl(taxdump, existing).unwrap(),
-            None => {
-                return Err(error::Error::FileNotFound(format!(
-                    "{}",
-                    &taxdump.to_str().unwrap()
-                )))
-            }
+            None => return Err(error::Error::NotDefined(format!("taxonomy-format"))),
         };
     } else {
         return Err(error::Error::NotDefined(format!("taxdump")));
@@ -126,7 +123,7 @@ fn taxdump_to_nodes(
 /// Execute the `taxonomy` subcommand from `blobtk`.
 pub fn taxonomy(options: &cli::TaxonomyOptions) -> Result<(), anyhow::Error> {
     let options = load_options(&options)?;
-    let mut nodes = taxdump_to_nodes(&options, None).unwrap();
+    let mut nodes = taxdump_to_nodes(&options, None)?;
     // if let Some(taxdump) = options.path.clone() {
     //     nodes = match options.taxonomy_format {
     //         Some(cli::TaxonomyFormat::NCBI) => parse_taxdump(taxdump)?,
@@ -150,6 +147,7 @@ pub fn taxonomy(options: &cli::TaxonomyOptions) -> Result<(), anyhow::Error> {
                 if matches!(taxonomy_format, cli::TaxonomyFormat::ENA) {
                     continue;
                 }
+
                 lookup_nodes(
                     &new_nodes,
                     &mut nodes,
@@ -167,9 +165,11 @@ pub fn taxonomy(options: &cli::TaxonomyOptions) -> Result<(), anyhow::Error> {
         dbg!(nodes.nodes.len());
         for genomehubs_file in genomehubs_files {
             // match taxa to nodes
-            let new_nodes = parse_file(genomehubs_file, &id_map)?;
+            // todo: add support for multiple genomehubs files
+            let (new_nodes, new_names, source) = parse_file(genomehubs_file, &id_map)?;
             // add new nodes to existing nodes
             dbg!(new_nodes.nodes.len());
+            nodes.add_names(&new_names)?;
             nodes.merge(&new_nodes)?;
         }
         dbg!(nodes.nodes.len());

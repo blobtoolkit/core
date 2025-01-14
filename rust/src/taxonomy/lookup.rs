@@ -99,6 +99,48 @@ pub fn lookup_nodes(
     xref_label: Option<String>,
     create_taxa: bool,
 ) {
+    let id_map = build_fast_lookup(&nodes, &name_classes);
+    let node_count = new_nodes.nodes.len();
+    let progress_bar = styled_progress_bar(node_count, "Looking up names");
+    for node in new_nodes.nodes.values() {
+        progress_bar.inc(1);
+        let taxonomy_section = node.to_taxonomy_section(&new_nodes);
+        let (assigned_taxon, taxon_match) = match_taxonomy_section(&taxonomy_section, &id_map);
+        if let Some(taxon) = assigned_taxon {
+            let tax_id = taxon.tax_id.clone().unwrap();
+            let new_tax_id = node.tax_id();
+            let names = nodes
+                .nodes
+                .get_mut(&tax_id)
+                .unwrap()
+                .names
+                .as_mut()
+                .unwrap();
+            let label = match xref_label {
+                Some(ref l) => l.clone(),
+                None => "".to_string(),
+            };
+            if let Some(new_names) = node.names.clone() {
+                for name in new_names.iter() {
+                    names.push(Name {
+                        tax_id: tax_id.clone(),
+                        unique_name: format!("{}:{}", &label, name.name.clone()),
+                        ..name.clone()
+                    });
+                }
+            }
+            names.push(Name {
+                tax_id: tax_id.clone(),
+                name: node.tax_id(),
+                unique_name: format!("{}:{}", &label, node.tax_id()),
+                class: Some("xref".to_string()),
+                //class: xref_label.clone(),
+            });
+        }
+    }
+    progress_bar.finish();
+
+    return;
     let mut table = build_lookup(&nodes, &name_classes, true);
     let ranks = RANKS[0..4].to_vec();
     let mut matched: HashMap<String, String> = HashMap::new();
